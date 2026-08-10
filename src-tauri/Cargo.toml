@@ -1,0 +1,45 @@
+[package]
+name = "taurus-viewer"
+version = "0.1.0"
+description = "Fast, lightweight multi-format document viewer"
+authors = ["Antigravity"]
+edition = "2021"
+
+[lib]
+name = "taurus_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+reqwest = { version = "0.12", features = ["blocking"] }
+flate2 = "1.0"
+tar = "0.4"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Type-safe IPC code generation
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
+
+# PDF Rendering
+pdfium-render = "0.8"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+
+# SQLite (library cache & tab sessions)
+chrono = { version = "0.4", features = ["serde"] }
+image = "0.25"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
+zip = "1.1"
+
+# Config & Scanner & Directories
+toml = "0.8"
+walkdir = "2"
+directories = "5"
+dirs = "6"
+tauri-plugin-dialog = "2"

@@ -1,0 +1,40 @@
+# TaurusViewer v1 MVP Task List
+
+## Progress Overview
+- [x] **Phase 1: Rust バックエンド基礎構築**
+  - [x] モジュール構造の確立 (`pdf/`, `library/`, `config/`, `protocol/`, `commands/`)
+  - [x] `AppError` による統合エラーハンドリング (`error.rs`)
+  - [x] SQLite マイグレーション構成 (`migrations/0001_initial.sql`)
+  - [x] `Pdfium` リンク処理・フォールバック機構 (`pdf/renderer.rs`)
+  - [x] タブ・セッション管理メモリ状態・キャッシュ (`pdf/session.rs`, `library/cache.rs`)
+  - [x] カスタムプロトコル登録スケルトン (`protocol/page.rs`, `protocol/thumb.rs`)
+- [x] **Phase 2: フロントエンド構造整理 & ルーティング**
+  - [x] 統一インターフェース定義 (`DocumentViewerHandle`, `ViewerCapabilities`, `PageTarget` 等)
+  - [x] feature フォルダ構造の整理 (`pdf-viewer`, `epub-viewer`, `library`, `tabs`, `command-mode`)
+  - [x] Zustand タブ管理ストア (`TabStore.ts` & `TabBar.tsx`)
+  - [x] TanStack Router シェルレイアウト統合 (`__root.tsx`)
+- [x] **Phase 3: PDF レンダリングパイプライン (Rust ⇄ Frontend)**
+  - [x] Rust セッションコマンド実装 (`pdf_open`, `pdf_close`, `pdf_get_page_dimensions`)
+  - [x] `taurus-page://` URI スキームハンドラ連携
+  - [x] specta から TypeScript 型自動生成 (`bindings.ts`)
+- [x] **Phase 4: PDF ビューア UI & コントロール**
+  - [x] `DocumentViewerHandle` PDF 実装クラス (`PdfViewerHandle`)
+  - [x] `taurus-page://` プロトコルを利用した PDF ビューアコンポーネント (`PdfView.tsx`)
+  - [x] タブ・ビューア表示の統合 (`index.tsx`)
+- [x] **Phase 5: ライブラリ機能 & スキャン**
+  - [x] フォルダ監視・再帰的ファイルスキャン (`scanner.rs`)
+  - [x] SQLite ライブラリキャッシュ DB 操作 (`cache.rs`)
+  - [x] サムネイル生成 (`thumbnail.rs`) と `taurus-thumb://` プロトコル
+  - [x] ライブラリグリッド / リストビュー UI (`LibraryView.tsx` & `/library` ルート)
+- [x] **Phase 6: 設定・状態永続化**
+  - [x] toml 構成ファイル読み書き (`settings.rs`)
+  - [x] `config_load` / `config_save` コマンドと Specta バインディング
+  - [x] 設定編集画面 (`/settings` ルート UI)
+- [ ] **Phase 7: キーボードナビゲーション & コマンドモード**
+  - [ ] キーボードショートカット・ディスパッチャ
+  - [ ] Cmdk コマンドパレット UI
+- [ ] **Phase 8: EPUB ビューア統合 (foliate-js)**
+  - [ ] foliate-js コンポーネント統合
+  - [ ] `DocumentViewerHandle` EPUB 実装クラス (`EpubViewerHandle`)
+- [ ] **Phase 9: 統合テスト & 最終検証**
+  - [ ] E2E / ビルド検証 (`pnpm build`, `cargo build`)

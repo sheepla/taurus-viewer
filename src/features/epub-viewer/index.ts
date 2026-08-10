@@ -1,0 +1,1 @@
+export { EpubView } from './EpubView';
