@@ -16,7 +16,7 @@ interface TabState {
   activeTabId: string | null;
   openTab: (filePath: string, format: DocumentFormat) => void;
   closeTab: (id: string) => void;
-  activateTab: (id: string) => void;
+  activateTab: (id: string | null) => void;
   activateNext: () => void;
   activatePrev: () => void;
   setHandle: (id: string, handle: DocumentViewerHandle) => void;

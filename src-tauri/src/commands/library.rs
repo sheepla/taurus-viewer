@@ -87,3 +87,12 @@ pub async fn library_scan_folder(
 
     Ok(count)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn palette_search_library(
+    query: String,
+    db_cache: State<'_, DbCache>,
+) -> Result<Vec<LibraryEntry>, AppError> {
+    db_cache.search_library(&query).await
+}

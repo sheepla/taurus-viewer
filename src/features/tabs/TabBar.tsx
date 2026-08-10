@@ -1,12 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useTabStore } from "./TabStore";
-import { X } from "lucide-react";
+import { Library, X } from "lucide-react";
 
 export function TabBar() {
   const { tabs, activeTabId, activateTab, closeTab } = useTabStore();
   const navigate = useNavigate();
 
-  if (tabs.length === 0) return null;
+  function handleLibraryClick() {
+    activateTab(null);
+    navigate({ to: "/" });
+  }
 
   function handleTabClick(tabId: string) {
     activateTab(tabId);
@@ -14,7 +17,23 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex h-9 items-center gap-px overflow-x-auto border-b border-border bg-muted/40 px-1">
+    <div className="flex h-9 items-center gap-1 overflow-x-auto border-b border-border bg-muted/40 px-2">
+      <button
+        type="button"
+        onClick={handleLibraryClick}
+        className={[
+          "group flex h-7 items-center gap-1.5 rounded px-2.5 text-xs transition-colors cursor-pointer select-none font-medium",
+          activeTabId === null
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+        ].join(" ")}
+      >
+        <Library size={13} />
+        <span>Library</span>
+      </button>
+
+      {tabs.length > 0 && <div className="h-4 w-px bg-border mx-1" />}
+
       {tabs.map((tab) => (
         <div
           key={tab.id}

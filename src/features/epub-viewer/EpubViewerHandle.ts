@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { View } from "foliate-js/view.js";
 import type {
   DocumentPosition,
   OutlineNode,
@@ -14,11 +15,12 @@ import type {
   ViewerCapabilities,
 } from "../../shared/viewer-handle";
 
+if (!customElements.get("foliate-view")) {
+  customElements.define("foliate-view", View);
+}
+
 interface EpubMetadata {
   session_id: string;
-  title: string;
-  author: string;
-  chapter_count: number;
 }
 
 export class EpubViewerHandle implements DocumentViewerHandle {
@@ -29,97 +31,54 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   };
 
   private sessionId: string | null = null;
-  private title = "";
-  private author = "";
-  private chapterCount = 0;
-  private currentChapter = 0;
-  private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
+  private view: View;
   private readyListeners: Set<() => void> = new Set();
+  private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
 
-  constructor(private filePath: string) {}
+  constructor(private filePath: string) {
+    this.view = document.createElement("foliate-view") as View;
+    this.view.style.width = "100%";
+    this.view.style.height = "100%";
+    this.view.style.display = "block";
+  }
+
+  getViewElement(): View {
+    return this.view;
+  }
 
   async init(): Promise<void> {
     try {
-      console.log(`Initializing EPUB viewer for: ${this.filePath}`);
       const meta = await invoke<EpubMetadata>("epub_open", {
         filePath: this.filePath,
       });
-
-      console.log(`EPUB opened successfully. Session ID: ${meta.session_id}, Title: ${meta.title}, Chapters: ${meta.chapter_count}`);
-      
       this.sessionId = meta.session_id;
-      this.title = meta.title;
-      this.author = meta.author;
-      this.chapterCount = meta.chapter_count;
 
-      for (const listener of this.readyListeners) {
-        listener();
+      const res = await fetch(`http://taurus-epub.localhost/${this.sessionId}`);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch EPUB: ${res.statusText}`);
+      }
+      const blob = await res.blob();
+      await this.view.open(blob);
+
+      for (const cb of this.readyListeners) {
+        cb();
       }
     } catch (error) {
       console.error("Failed to initialize EPUB viewer:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
       throw error;
     }
   }
 
-  getSessionId(): string | null {
-    return this.sessionId;
-  }
-
-  getTitle(): string {
-    return this.title;
-  }
-
-  getAuthor(): string {
-    return this.author;
-  }
-
-  getChapterCount(): number {
-    return this.chapterCount;
-  }
-
-  async getChapterContent(chapterIndex: number): Promise<string> {
-    if (!this.sessionId) {
-      throw new Error("EPUB session not initialized");
-    }
-
-    const content = await invoke<string>("epub_get_chapter_content", {
-      sessionId: this.sessionId,
-      chapterIndex,
-    });
-
-    return content;
-  }
-
-  getZoom(): ZoomLevel {
-    return 1.0; // EPUB doesn't use zoom
-  }
-
-  getViewMode(): ViewMode {
-    return "pages";
-  }
-
   navigate(target: PageTarget | ScrollDelta): void {
     if (target.kind === "page") {
-      this.currentChapter = Math.max(
-        0,
-        Math.min(target.index, this.chapterCount - 1),
-      );
-      this.notifyPositionChange();
+      // Navigation handling
     }
   }
 
-  setZoom(_level: ZoomLevel): void {
-    // EPUB viewer doesn't support zoom
-  }
+  setZoom(_level: ZoomLevel): void {}
+  setViewMode(_mode: ViewMode): void {}
 
-  setViewMode(_mode: ViewMode): void {
-    // EPUB viewer only supports pages mode
-  }
-
-  async *search(_query: string): AsyncIterable<SearchHit> {
-    // Search to be implemented
-  }
+  async *search(_query: string): AsyncIterable<SearchHit> {}
 
   async getOutline(): Promise<OutlineNode[]> {
     return [];
@@ -128,7 +87,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   getCurrentPosition(): DocumentPosition {
     return {
       format: "epub",
-      cfi: `chapter-${this.currentChapter}`,
+      cfi: this.view.lastLocation?.fraction?.toString() ?? "0",
     };
   }
 
@@ -139,20 +98,12 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
   onReady(cb: () => void): Unsubscribe {
     this.readyListeners.add(cb);
-    if (this.sessionId) {
-      cb();
-    }
+    if (this.sessionId) cb();
     return () => this.readyListeners.delete(cb);
   }
 
-  private notifyPositionChange(): void {
-    const pos = this.getCurrentPosition();
-    for (const listener of this.positionListeners) {
-      listener(pos);
-    }
-  }
-
   dispose(): void {
+    this.view.close();
     if (this.sessionId) {
       invoke("epub_close", { sessionId: this.sessionId }).catch(console.error);
       this.sessionId = null;

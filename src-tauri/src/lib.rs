@@ -35,12 +35,12 @@ pub fn run() {
         commands::pdf::pdf_get_page_dimensions,
         commands::epub::epub_open,
         commands::epub::epub_close,
-        commands::epub::epub_get_chapter_content,
         commands::library::library_add_folder,
         commands::library::library_remove_folder,
         commands::library::library_list_folders,
         commands::library::library_list_entries,
         commands::library::library_scan_folder,
+        commands::library::palette_search_library,
         commands::config::config_load,
         commands::config::config_save,
     ]);
@@ -53,6 +53,7 @@ pub fn run() {
     let mut tauri_builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     tauri_builder = protocol::page::register(tauri_builder);
     tauri_builder = protocol::thumb::register(tauri_builder);
+    tauri_builder = protocol::epub::register(tauri_builder);
 
     let invoke_handler = builder.invoke_handler();
 

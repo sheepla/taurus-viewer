@@ -10,17 +10,16 @@ export const commands = {
 	pdfClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pdf_close", { sessionId })),
 	/**  Returns page dimensions for layout calculation. */
 	pdfGetPageDimensions: (sessionId: string, pageIndex: number) => typedError<PageDimensions, AppError>(__TAURI_INVOKE("pdf_get_page_dimensions", { sessionId, pageIndex })),
-	/**  Opens an EPUB file, creates a session, and returns basic document metadata. */
+	/**  Opens an EPUB file, creates a session, and returns session ID. */
 	epubOpen: (filePath: string) => typedError<EpubMetadata, AppError>(__TAURI_INVOKE("epub_open", { filePath })),
 	/**  Closes an EPUB session and releases resources. */
 	epubClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("epub_close", { sessionId })),
-	/**  Returns chapter content for display. */
-	epubGetChapterContent: (sessionId: string, chapterIndex: number) => typedError<string, AppError>(__TAURI_INVOKE("epub_get_chapter_content", { sessionId, chapterIndex })),
 	libraryAddFolder: (path: string) => typedError<number, AppError>(__TAURI_INVOKE("library_add_folder", { path })),
 	libraryRemoveFolder: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("library_remove_folder", { path })),
 	libraryListFolders: () => typedError<LibraryFolder[], AppError>(__TAURI_INVOKE("library_list_folders")),
 	libraryListEntries: () => typedError<LibraryEntry[], AppError>(__TAURI_INVOKE("library_list_entries")),
 	libraryScanFolder: (path: string) => typedError<number, AppError>(__TAURI_INVOKE("library_scan_folder", { path })),
+	paletteSearchLibrary: (query: string) => typedError<LibraryEntry[], AppError>(__TAURI_INVOKE("palette_search_library", { query })),
 	configLoad: () => typedError<Config, AppError>(__TAURI_INVOKE("config_load")),
 	configSave: (newConfig: Config) => typedError<null, AppError>(__TAURI_INVOKE("config_save", { newConfig })),
 };
@@ -44,9 +43,6 @@ export type DocumentConfig = {
 
 export type EpubMetadata = {
 	session_id: string,
-	title: string,
-	author: string,
-	chapter_count: number,
 };
 
 export type LibraryEntry = {

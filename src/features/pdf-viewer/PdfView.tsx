@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
@@ -6,6 +6,74 @@ import { PdfViewerHandle } from "./PdfViewerHandle";
 interface PdfViewProps {
   tabId: string;
   filePath: string;
+}
+
+function PageItem({
+  sessionId,
+  index,
+  pageCount,
+  invertColors,
+}: {
+  sessionId: string;
+  index: number;
+  pageCount: number;
+  invertColors: boolean;
+}) {
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+          }
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border min-h-[500px] w-full justify-center"
+    >
+      {isVisible ? (
+        <img
+          src={`http://taurus-page.localhost/${sessionId}/${index}?w=1200`}
+          alt={`Page ${index + 1}`}
+          className="max-w-full h-auto object-contain"
+          style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
+          onError={(e) => {
+            console.error(`Failed to load page ${index + 1}:`, e);
+            (e.target as HTMLImageElement).src =
+              "data:image/svg+xml," +
+              encodeURIComponent(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+                  <rect width="100%" height="100%" fill="#f0f0f0"/>
+                  <text x="50%" y="50%" text-anchor="middle" dy=".3em" font-family="Arial" font-size="14" fill="#666">
+                    Failed to load page ${index + 1}
+                  </text>
+                </svg>
+              `);
+          }}
+        />
+      ) : (
+        <div className="text-muted-foreground text-xs animate-pulse">
+          Loading page {index + 1}...
+        </div>
+      )}
+      <span className="mt-2 text-muted-foreground text-xs">
+        Page {index + 1} of {pageCount}
+      </span>
+    </div>
+  );
 }
 
 export function PdfView({ tabId, filePath }: PdfViewProps) {
@@ -33,7 +101,6 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
       })
       .catch((err) => {
         console.error("Failed to initialize PDF viewer:", err);
-        console.error("Error details:", JSON.stringify(err, null, 2));
         setError(err.message || "Unknown error occurred");
         setLoading(false);
       });
@@ -76,15 +143,6 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
           <div className="text-xs text-muted-foreground mb-4 p-3 bg-muted/20 rounded">
             {error}
           </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>Please check:</p>
-            <ul className="list-disc list-inside space-y-1 text-left">
-              <li>File exists and is accessible</li>
-              <li>File is a valid PDF document</li>
-              <li>File is not password protected</li>
-              <li>File is not corrupted</li>
-            </ul>
-          </div>
         </div>
       </div>
     );
@@ -95,9 +153,6 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-destructive text-sm">
         <div className="font-medium">No PDF session available</div>
-        <div className="text-xs text-muted-foreground">
-          PDF viewer initialization completed but no session was created.
-        </div>
       </div>
     );
   }
@@ -106,9 +161,6 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground text-sm">
         <div className="font-medium">PDF appears to be empty</div>
-        <div className="text-xs">
-          The PDF file has no pages or could not be processed.
-        </div>
       </div>
     );
   }
@@ -117,32 +169,13 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     <div className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4">
       <div className="mx-auto flex flex-col items-center gap-6 max-w-4xl w-full">
         {Array.from({ length: pageCount }, (_, index) => (
-          <div
+          <PageItem
             key={index}
-            className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border"
-          >
-            <img
-              src={`http://taurus-page.localhost/${sessionId}/${index}?w=1200`}
-              alt={`Page ${index + 1}`}
-              className="max-w-full h-auto object-contain"
-              style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
-              loading="lazy"
-              onError={(e) => {
-                console.error(`Failed to load page ${index + 1}:`, e);
-                (e.target as HTMLImageElement).src = "data:image/svg+xml," + encodeURIComponent(`
-                  <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
-                    <rect width="100%" height="100%" fill="#f0f0f0"/>
-                    <text x="50%" y="50%" text-anchor="middle" dy=".3em" font-family="Arial" font-size="14" fill="#666">
-                      Failed to load page ${index + 1}
-                    </text>
-                  </svg>
-                `);
-              }}
-            />
-            <span className="mt-2 text-muted-foreground text-xs">
-              Page {index + 1} of {pageCount}
-            </span>
-          </div>
+            sessionId={sessionId}
+            index={index}
+            pageCount={pageCount}
+            invertColors={invertColors}
+          />
         ))}
       </div>
     </div>

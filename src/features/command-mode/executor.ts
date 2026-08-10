@@ -5,24 +5,51 @@ import { invoke } from '@tauri-apps/api/core';
 
 type Theme = 'light' | 'dark' | 'system';
 
-/**
- * Theme setter injected from ThemeProvider context.
- * Call `registerThemeSetter` once at startup.
- */
 let _setTheme: ((t: Theme) => void) | null = null;
+let _openSettings: (() => void) | null = null;
 
 export function registerThemeSetter(fn: (t: Theme) => void) {
   _setTheme = fn;
+}
+
+export function registerSettingsOpener(fn: () => void) {
+  _openSettings = fn;
 }
 
 export function executeCommand(cmd: ParsedCommand): void {
   const store = useTabStore.getState();
 
   switch (cmd.id) {
-    case 'quit':
+    case 'quit': {
+      const active = store.activeTabId;
+      if (active) {
+        store.closeTab(active);
+        toast.info('Tab closed');
+      } else {
+        invoke('plugin:window|close').catch(() => {
+          window.close();
+        });
+      }
+      break;
+    }
+
+    case 'qall':
       invoke('plugin:window|close').catch(() => {
         window.close();
       });
+      break;
+
+    case 'library':
+      store.activateTab(null);
+      toast.info('Switched to Library');
+      break;
+
+    case 'settings':
+      if (_openSettings) {
+        _openSettings();
+      } else {
+        toast.error('Settings not available');
+      }
       break;
 
     case 'tab next':
@@ -47,7 +74,6 @@ export function executeCommand(cmd: ParsedCommand): void {
     }
 
     case 'set theme': {
-      // Args: ["dark"] or ["light"] or ["system"]
       const value = cmd.args[0]?.toLowerCase() as Theme | undefined;
       const valid: Theme[] = ['light', 'dark', 'system'];
       if (!value || !valid.includes(value)) {
@@ -66,7 +92,6 @@ export function executeCommand(cmd: ParsedCommand): void {
     case 'open': {
       const path = cmd.args.join(' ');
       if (!path) {
-        // Open file dialog if no path is given
         import('@tauri-apps/plugin-dialog').then(({ open }) => {
           open({
             multiple: false,
@@ -90,7 +115,7 @@ export function executeCommand(cmd: ParsedCommand): void {
     }
 
     case 'help':
-      toast.info('Commands: open, quit, tab next/prev/close, set theme=<value>');
+      toast.info('Commands: open, quit, qall, library, settings, tab next/prev/close, set theme=<value>');
       break;
 
     default:

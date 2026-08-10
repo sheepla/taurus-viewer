@@ -5,8 +5,11 @@ export type CommandDefinition = {
 
 export const COMMANDS: CommandDefinition[] = [
   { id: 'open', description: 'Open a file (e.g., :open path/to/file.pdf)' },
-  { id: 'quit', description: 'Quit the application' },
+  { id: 'quit', description: 'Close current tab (:q)' },
+  { id: 'qall', description: 'Quit application (:qa)' },
   { id: 'help', description: 'Show help for commands' },
+  { id: 'library', description: 'Go to library home screen' },
+  { id: 'settings', description: 'Open settings modal' },
   { id: 'tab next', description: 'Switch to next tab' },
   { id: 'tab prev', description: 'Switch to previous tab' },
   { id: 'tab close', description: 'Close current tab' },

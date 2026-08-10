@@ -137,4 +137,20 @@ impl DbCache {
 
         Ok(())
     }
+
+    pub async fn search_library(&self, query: &str) -> Result<Vec<LibraryEntry>, AppError> {
+        let pattern = format!("%{}%", query);
+        let rows = sqlx::query_as::<_, LibraryEntry>(
+            "SELECT id, folder_id, path, format, title, size, mtime, status, error_message, thumbnail_path, created_at, updated_at 
+             FROM library_entries 
+             WHERE title LIKE ? OR path LIKE ? 
+             ORDER BY updated_at DESC LIMIT 50",
+        )
+        .bind(&pattern)
+        .bind(&pattern)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
 }
