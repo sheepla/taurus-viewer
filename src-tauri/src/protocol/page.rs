@@ -51,9 +51,14 @@ pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wr
             }
         };
 
-        println!("Rendering PDF session: {}, page: {}, width: {}", session_id, page_index, width);
+        println!(
+            "Rendering PDF session: {}, page: {}, width: {}",
+            session_id, page_index, width
+        );
 
-        let session_manager = ctx.app_handle().try_state::<Arc<RwLock<PdfSessionManager>>>();
+        let session_manager = ctx
+            .app_handle()
+            .try_state::<Arc<RwLock<PdfSessionManager>>>();
 
         let res = match session_manager {
             Some(session_manager) => {
@@ -70,13 +75,19 @@ pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wr
             }
             None => {
                 println!("Session manager not found in app state");
-                Err(crate::error::AppError::Pdf("Session manager not available".into()))
+                Err(crate::error::AppError::Pdf(
+                    "Session manager not available".into(),
+                ))
             }
         };
 
         match res {
             Ok(bytes) => {
-                println!("Successfully rendered page {} ({} bytes)", page_index, bytes.len());
+                println!(
+                    "Successfully rendered page {} ({} bytes)",
+                    page_index,
+                    bytes.len()
+                );
                 tauri::http::Response::builder()
                     .status(200)
                     .header("Content-Type", "image/png")

@@ -1,31 +1,45 @@
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import { useTabStore } from "../tabs/TabStore";
 
 export function LibraryView() {
-  const [folders, setFolders] = useState<LibraryFolder[]>([]);
-  const [entries, setEntries] = useState<LibraryEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const [scanning, setScanning] = useState(false);
   const openTab = useTabStore((s) => s.openTab);
   const navigate = useNavigate();
 
-  async function loadLibrary() {
-    try {
-      const fList = await invoke<LibraryFolder[]>("library_list_folders");
-      const eList = await invoke<LibraryEntry[]>("library_list_entries");
-      setFolders(fList);
-      setEntries(eList);
-    } catch (err) {
-      console.error("Failed to load library data:", err);
-    }
-  }
+  const foldersQuery = useQuery({
+    queryKey: ["library", "folders"],
+    queryFn: () => invoke<LibraryFolder[]>("library_list_folders"),
+  });
 
-  useEffect(() => {
-    loadLibrary();
-  }, []);
+  const entriesQuery = useQuery({
+    queryKey: ["library", "entries"],
+    queryFn: () => invoke<LibraryEntry[]>("library_list_entries"),
+  });
+
+  const addFolder = useMutation({
+    mutationFn: async (path: string) => {
+      await invoke("library_add_folder", { path });
+      await invoke("library_scan_folder", { path });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["library"] }),
+  });
+
+  const refreshing = foldersQuery.isFetching || entriesQuery.isFetching;
+  const folders = foldersQuery.data ?? [];
+  const entries = entriesQuery.data ?? [];
+
+  async function handleRefresh() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["library", "folders"] }),
+      queryClient.invalidateQueries({ queryKey: ["library", "entries"] }),
+    ]);
+  }
 
   async function handleAddFolder() {
     try {
@@ -38,14 +52,12 @@ export function LibraryView() {
 
       if (!selected || typeof selected !== "string") return;
 
-      setLoading(true);
-      await invoke("library_add_folder", { path: selected });
-      await invoke("library_scan_folder", { path: selected });
-      await loadLibrary();
+      setScanning(true);
+      await addFolder.mutateAsync(selected);
     } catch (err) {
       console.error("Failed to scan folder:", err);
     } finally {
-      setLoading(false);
+      setScanning(false);
     }
   }
 
@@ -56,20 +68,20 @@ export function LibraryView() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadLibrary}
-            disabled={loading}
+            onClick={handleRefresh}
+            disabled={refreshing}
             className="flex items-center gap-1.5 rounded border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
           >
             <RefreshCw
               size={14}
-              className={loading ? "animate-spin" : undefined}
+              className={refreshing ? "animate-spin" : undefined}
             />
             Refresh
           </button>
           <button
             type="button"
             onClick={handleAddFolder}
-            disabled={loading}
+            disabled={scanning}
             className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             <FolderPlus size={14} />

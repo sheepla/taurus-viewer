@@ -1,43 +1,37 @@
 use crate::error::AppError;
-use crate::epub::EpubChapter;
+use epub::doc::EpubDoc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct EpubSession {
+    // TODO add more metadata properties for general use
     pub id: String,
     pub file_path: PathBuf,
-    pub title: String,
-    pub author: String,
-    pub chapters: Vec<EpubChapter>,
+    pub title: Option<String>,
+    pub author: Option<String>,
 }
 
 impl EpubSession {
     pub fn new(id: String, file_path: PathBuf) -> Result<Self, AppError> {
         println!("Creating EPUB session for file: {:?}", file_path);
-        
-        let metadata = crate::epub::extract_epub_metadata(&file_path)?;
-        
-        println!("EPUB metadata extracted: title={}, author={}, chapters={}", metadata.title, metadata.author, metadata.chapters.len());
+
+        let doc = EpubDoc::new(&file_path)
+            .map_err(|e| AppError::Epub(format!("Failed to parse EPUB with epub crate: {}", e)))?;
+
+        let title = doc.mdata("title").map(|m| m.value.clone());
+        let author = doc.mdata("creator").map(|m| m.value.clone());
+
+        println!(
+            "EPUB successfully loaded via epub crate: title={:?}, author={:?}",
+            title, author
+        );
 
         Ok(Self {
             id,
             file_path,
-            title: metadata.title,
-            author: metadata.author,
-            chapters: metadata.chapters,
+            title,
+            author,
         })
-    }
-
-    pub fn get_chapter_count(&self) -> usize {
-        self.chapters.len()
-    }
-
-    pub fn get_chapter_content(&self, chapter_index: usize) -> Result<String, AppError> {
-        if let Some(chapter) = self.chapters.get(chapter_index) {
-            Ok(chapter.content.clone())
-        } else {
-            Err(AppError::Epub(format!("Chapter index out of bounds: {}", chapter_index)))
-        }
     }
 }
 
@@ -62,10 +56,6 @@ impl EpubSessionManager {
         self.sessions.insert(id.clone(), session);
 
         Ok(self.sessions.get(&id).unwrap())
-    }
-
-    pub fn get_session(&self, id: &str) -> Option<&EpubSession> {
-        self.sessions.get(id)
     }
 
     pub fn close_session(&mut self, id: &str) {

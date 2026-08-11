@@ -18,7 +18,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http: https: asset: http://taurus-page.localhost http://taurus-thumb.localhost http://taurus-epub.localhost; img-src 'self' taurus-page: taurus-thumb: taurus-epub: http://taurus-page.localhost http://taurus-thumb.localhost http://taurus-epub.localhost asset: http://asset.localhost blob: data:; connect-src 'self' http://taurus-epub.localhost http://taurus-page.localhost http://taurus-thumb.localhost;"
+      "csp": "default-src 'self' http: https: asset: blob: data: http://taurus-page.localhost http://taurus-thumb.localhost; img-src 'self' taurus-page: taurus-thumb: http://taurus-page.localhost http://taurus-thumb.localhost asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline' blob: data:; connect-src 'self' blob: data: http://taurus-page.localhost http://taurus-thumb.localhost;"
     }
   },
   "bundle": {

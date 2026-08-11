@@ -1,7 +1,7 @@
 mod commands;
 mod config;
-mod error;
 mod epub;
+mod error;
 mod library;
 mod pdf;
 mod protocol;
@@ -50,10 +50,11 @@ pub fn run() {
         .export(Typescript::default(), "../src/shared/bindings.ts")
         .expect("Failed to export specta bindings");
 
-    let mut tauri_builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    let mut tauri_builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init());
     tauri_builder = protocol::page::register(tauri_builder);
     tauri_builder = protocol::thumb::register(tauri_builder);
-    tauri_builder = protocol::epub::register(tauri_builder);
 
     let invoke_handler = builder.invoke_handler();
 

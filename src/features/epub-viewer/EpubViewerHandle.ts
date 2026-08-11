@@ -40,25 +40,23 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     this.view.style.width = "100%";
     this.view.style.height = "100%";
     this.view.style.display = "block";
+    this.view.style.flex = "1";
+    this.view.style.minHeight = "0";
   }
 
   getViewElement(): View {
     return this.view;
   }
 
-  async init(): Promise<void> {
+  async init(file: File): Promise<void> {
     try {
       const meta = await invoke<EpubMetadata>("epub_open", {
         filePath: this.filePath,
       });
       this.sessionId = meta.session_id;
 
-      const res = await fetch(`http://taurus-epub.localhost/${this.sessionId}`);
-      if (!res.ok) {
-        throw new Error(`Failed to fetch EPUB: ${res.statusText}`);
-      }
-      const blob = await res.blob();
-      await this.view.open(blob);
+      await this.view.open(file);
+      await this.view.init({ showTextStart: true });
 
       for (const cb of this.readyListeners) {
         cb();
@@ -103,7 +101,13 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   }
 
   dispose(): void {
-    this.view.close();
+    try {
+      if (this.view && typeof this.view.close === "function") {
+        this.view.close();
+      }
+    } catch (err) {
+      console.warn("Error during view close:", err);
+    }
     if (this.sessionId) {
       invoke("epub_close", { sessionId: this.sessionId }).catch(console.error);
       this.sessionId = null;

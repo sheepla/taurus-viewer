@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,28 +23,32 @@ export const useCommandPaletteStore = create<CommandPaletteState>((set) => ({
 export function CommandPalette() {
   const { isOpen, close } = useCommandPaletteStore();
   const [query, setQuery] = useState("");
-  const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([]);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const { tabs, activateTab, openTab } = useTabStore();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setQuery("");
-      invoke<LibraryEntry[]>("palette_search_library", { query: "" })
-        .then(setLibraryEntries)
-        .catch(console.error);
+      setDebouncedQuery("");
     }
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    const timer = setTimeout(() => {
-      invoke<LibraryEntry[]>("palette_search_library", { query })
-        .then(setLibraryEntries)
-        .catch(console.error);
-    }, 150);
+    const timer = setTimeout(() => setDebouncedQuery(query), 150);
     return () => clearTimeout(timer);
   }, [query, isOpen]);
+
+  const { data: libraryEntries = [] } = useQuery({
+    queryKey: ["palette-search", debouncedQuery],
+    queryFn: () =>
+      invoke<LibraryEntry[]>("palette_search_library", {
+        query: debouncedQuery,
+      }),
+    enabled: isOpen,
+    staleTime: 30_000,
+  });
 
   const filteredTabs = tabs.filter((t) =>
     t.title.toLowerCase().includes(query.toLowerCase()) ||

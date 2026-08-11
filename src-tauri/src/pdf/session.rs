@@ -18,11 +18,15 @@ pub struct PdfSession {
 }
 
 impl PdfSession {
-    pub fn new(id: String, file_path: PathBuf, resource_dir: Option<PathBuf>) -> Result<Self, AppError> {
+    pub fn new(
+        id: String,
+        file_path: PathBuf,
+        resource_dir: Option<PathBuf>,
+    ) -> Result<Self, AppError> {
         println!("Creating PDF session for file: {:?}", file_path);
-        
+
         let page_count = Self::get_page_count(&file_path, resource_dir.as_deref())?;
-        
+
         println!("PDF has {} pages", page_count);
 
         Ok(Self {
@@ -46,10 +50,10 @@ impl PdfSession {
         #[cfg(target_os = "windows")]
         {
             use std::io::Write;
-            
+
             let temp_dir = std::env::temp_dir();
             let dll_path = temp_dir.join(format!("pdfium_{}.dll", std::process::id()));
-            
+
             if dll_path.exists() {
                 if let Ok(metadata) = std::fs::metadata(&dll_path) {
                     if metadata.len() == PDFIUM_DLL_BYTES.len() as u64 {
@@ -57,19 +61,22 @@ impl PdfSession {
                     }
                 }
             }
-            
-            let mut file = std::fs::File::create(&dll_path)
-                .map_err(|e| AppError::Pdf(format!("Failed to create temporary PDFium DLL: {}", e)))?;
-            
+
+            let mut file = std::fs::File::create(&dll_path).map_err(|e| {
+                AppError::Pdf(format!("Failed to create temporary PDFium DLL: {}", e))
+            })?;
+
             file.write_all(PDFIUM_DLL_BYTES)
                 .map_err(|e| AppError::Pdf(format!("Failed to write PDFium DLL: {}", e)))?;
-            
+
             Ok(dll_path)
         }
-        
+
         #[cfg(not(target_os = "windows"))]
         {
-            Err(AppError::Pdf("PDFium DLL embedding is only supported on Windows".to_string()))
+            Err(AppError::Pdf(
+                "PDFium DLL embedding is only supported on Windows".to_string(),
+            ))
         }
     }
 
@@ -107,7 +114,10 @@ impl PdfSession {
             return Ok(local_path);
         }
 
-        Err(AppError::Pdf("Could not find pdfium.dll in resource directory, temp, or current directory.".to_string()))
+        Err(AppError::Pdf(
+            "Could not find pdfium.dll in resource directory, temp, or current directory."
+                .to_string(),
+        ))
     }
 
     fn create_pdfium(resource_dir: Option<&Path>) -> Result<Pdfium, AppError> {
@@ -197,7 +207,11 @@ impl PdfSessionManager {
         }
     }
 
-    pub fn open_session(&mut self, file_path: &Path, resource_dir: Option<PathBuf>) -> Result<&PdfSession, AppError> {
+    pub fn open_session(
+        &mut self,
+        file_path: &Path,
+        resource_dir: Option<PathBuf>,
+    ) -> Result<&PdfSession, AppError> {
         let id = format!("pdf_session_{}", self.next_id);
         self.next_id += 1;
 

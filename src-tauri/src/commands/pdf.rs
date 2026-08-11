@@ -27,28 +27,28 @@ pub async fn pdf_open(
     app: tauri::AppHandle,
 ) -> Result<PdfMetadata, AppError> {
     println!("pdf_open called with file_path: {}", file_path);
-    
+
     // Normalize Windows path separators
     let normalized_path = if cfg!(windows) {
         file_path.replace('/', "\\")
     } else {
         file_path.replace('\\', "/")
     };
-    
+
     let path = PathBuf::from(&normalized_path);
-    
+
     // Check if file exists
     if !path.exists() {
         return Err(AppError::Pdf(format!("File not found: {:?}", path)));
     }
-    
+
     // Check if it's a file
     if !path.is_file() {
         return Err(AppError::Pdf(format!("Path is not a file: {:?}", path)));
     }
-    
+
     println!("Normalized path: {:?}", path);
-    
+
     let resource_dir = app.path().resource_dir().ok();
     let mut manager = session_manager.write().await;
     let session = manager.open_session(&path, resource_dir)?;

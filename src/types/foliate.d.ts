@@ -5,6 +5,7 @@ declare module "foliate-js/view.js" {
     history: any;
     book: any;
     open(book: any): Promise<void>;
+    init(options?: { lastLocation?: any; showTextStart?: boolean }): Promise<void>;
     close(): void;
     goToTextStart(): Promise<any>;
     goTo(target: any): Promise<any>;
