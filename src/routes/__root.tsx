@@ -8,6 +8,9 @@ import { CommandBar } from "@/features/command-mode/CommandBar";
 import { CommandPalette } from "@/features/command-mode/CommandPalette";
 import { useCommandMode } from "@/features/command-mode/useCommandMode";
 import { registerThemeSetter, registerSettingsOpener } from "@/features/command-mode/executor";
+import { useNavigationKeys } from "@/features/navigation/useNavigationKeys";
+import { StatusBar } from "@/features/navigation/StatusBar";
+import { ViewerNavButtons } from "@/features/navigation/ViewerNavButtons";
 import { Toaster } from "@/components/ui/sonner";
 import { SettingsModal } from "@/components/SettingsModal";
 import { useSettingsModalStore } from "@/components/settingsModalStore";
@@ -27,6 +30,7 @@ function ThemeSync() {
 
 function RootLayout() {
   useCommandMode();
+  useNavigationKeys();
   const openSettings = useSettingsModalStore((s) => s.open);
 
   // Global shortcut Ctrl+, for settings
@@ -64,7 +68,9 @@ function RootLayout() {
         <div className="flex-1 overflow-hidden relative">
           <Outlet />
           <CommandBar />
+          <ViewerNavButtons />
         </div>
+        <StatusBar />
       </main>
     </SidebarProvider>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
@@ -13,11 +13,13 @@ function PageItem({
   index,
   pageCount,
   invertColors,
+  pageIndex,
 }: {
   sessionId: string;
   index: number;
   pageCount: number;
   invertColors: boolean;
+  pageIndex: number;
 }) {
   const [isVisible, setIsVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -42,6 +44,7 @@ function PageItem({
   return (
     <div
       ref={ref}
+      data-page-index={pageIndex}
       className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border min-h-[500px] w-full justify-center"
     >
       {isVisible ? (
@@ -82,6 +85,15 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const setTabHandle = useTabStore((s) => s.setHandle);
+
+  const scrollContainerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el && handle) {
+        handle.attachScrollContainer(el);
+      }
+    },
+    [handle],
+  );
 
   useEffect(() => {
     const viewerHandle = new PdfViewerHandle(filePath);
@@ -166,11 +178,13 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4">
+    <div className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4"
+      ref={scrollContainerRef}>
       <div className="mx-auto flex flex-col items-center gap-6 max-w-4xl w-full">
         {Array.from({ length: pageCount }, (_, index) => (
           <PageItem
             key={index}
+            pageIndex={index}
             sessionId={sessionId}
             index={index}
             pageCount={pageCount}

@@ -4,6 +4,7 @@ import type {
   DocumentPosition,
   OutlineNode,
   PageTarget,
+  PageTurn,
   ScrollDelta,
   SearchHit,
   Unsubscribe,
@@ -27,6 +28,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   private currentPage = 0;
   private zoomLevel = 1.0;
   private viewMode: ViewMode = "scroll";
+  private scrollContainer: HTMLElement | null = null;
   private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
   private readyListeners: Set<() => void> = new Set();
 
@@ -34,13 +36,10 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
   async init(): Promise<void> {
     try {
-      console.log(`Initializing PDF viewer for: ${this.filePath}`);
       const meta = await invoke<PdfMetadata>("pdf_open", {
         filePath: this.filePath,
       });
 
-      console.log(`PDF opened successfully. Session ID: ${meta.session_id}, Pages: ${meta.page_count}`);
-      
       this.sessionId = meta.session_id;
       this.pageCount = meta.page_count;
 
@@ -52,6 +51,11 @@ export class PdfViewerHandle implements DocumentViewerHandle {
       console.error("Error details:", JSON.stringify(error, null, 2));
       throw error;
     }
+  }
+
+  attachScrollContainer(el: HTMLElement): void {
+    this.scrollContainer = el;
+    el.addEventListener("scroll", () => this.onScroll(), { passive: true });
   }
 
   getSessionId(): string | null {
@@ -70,13 +74,22 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return this.viewMode;
   }
 
-  navigate(target: PageTarget | ScrollDelta): void {
-    if (target.kind === "page") {
-      this.currentPage = Math.max(
-        0,
-        Math.min(target.index, this.pageCount - 1),
-      );
-      this.notifyPositionChange();
+  navigate(target: PageTarget | ScrollDelta | PageTurn): void {
+    switch (target.kind) {
+      case "page":
+        this.scrollToPage(target.index);
+        break;
+      case "scroll":
+        this.scrollContainer?.scrollBy({ top: target.deltaY, behavior: "auto" });
+        break;
+      case "prev":
+      case "left":
+        this.scrollToPage(this.currentPage - 1);
+        break;
+      case "next":
+      case "right":
+        this.scrollToPage(this.currentPage + 1);
+        break;
     }
   }
 
@@ -102,8 +115,14 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return {
       format: "pdf",
       pageIndex: this.currentPage,
-      scrollOffset: 0,
+      scrollOffset: this.scrollContainer?.scrollTop ?? 0,
+      pageCount: this.pageCount,
     };
+  }
+
+  getProgress(): number {
+    if (this.pageCount <= 1) return 0;
+    return Math.min(1, Math.max(0, this.currentPage / (this.pageCount - 1)));
   }
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {
@@ -119,6 +138,44 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return () => this.readyListeners.delete(cb);
   }
 
+  private scrollToPage(index: number): void {
+    if (this.pageCount === 0) return;
+    const clamped = Math.max(0, Math.min(index, this.pageCount - 1));
+    const page = this.scrollContainer?.querySelector<HTMLElement>(
+      `[data-page-index="${clamped}"]`,
+    );
+    if (page) {
+      page.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+    if (clamped !== this.currentPage) {
+      this.currentPage = clamped;
+      this.notifyPositionChange();
+    }
+  }
+
+  private onScroll(): void {
+    const container = this.scrollContainer;
+    if (!container) return;
+    const pages = container.querySelectorAll<HTMLElement>("[data-page-index]");
+    if (pages.length === 0) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    let best = this.currentPage;
+    let bestDistance = Infinity;
+    pages.forEach((page, index) => {
+      const distance = Math.abs(page.getBoundingClientRect().top - containerTop);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+
+    if (best !== this.currentPage) {
+      this.currentPage = best;
+      this.notifyPositionChange();
+    }
+  }
+
   private notifyPositionChange(): void {
     const pos = this.getCurrentPosition();
     for (const listener of this.positionListeners) {
@@ -131,6 +188,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
       invoke("pdf_close", { sessionId: this.sessionId }).catch(console.error);
       this.sessionId = null;
     }
+    this.scrollContainer = null;
     this.positionListeners.clear();
     this.readyListeners.clear();
   }

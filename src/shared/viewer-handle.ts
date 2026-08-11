@@ -2,6 +2,7 @@ import type {
   DocumentPosition,
   OutlineNode,
   PageTarget,
+  PageTurn,
   ScrollDelta,
   SearchHit,
   Unsubscribe,
@@ -31,7 +32,7 @@ export interface ViewerCapabilities {
 export interface DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities;
 
-  navigate(target: PageTarget | ScrollDelta): void;
+  navigate(target: PageTarget | ScrollDelta | PageTurn): void;
   setZoom(level: ZoomLevel): void;
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */
   setViewMode(mode: ViewMode): void;
@@ -39,6 +40,8 @@ export interface DocumentViewerHandle {
   getOutline(): Promise<OutlineNode[]>;
   /** Called when tab state is persisted (e.g. on close or app exit). */
   getCurrentPosition(): DocumentPosition;
+  /** Current reading progress as a fraction in [0, 1]. */
+  getProgress(): number;
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe;
   onReady(cb: () => void): Unsubscribe;

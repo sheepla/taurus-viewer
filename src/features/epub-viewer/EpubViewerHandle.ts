@@ -4,6 +4,7 @@ import type {
   DocumentPosition,
   OutlineNode,
   PageTarget,
+  PageTurn,
   ScrollDelta,
   SearchHit,
   Unsubscribe,
@@ -42,6 +43,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     this.view.style.display = "block";
     this.view.style.flex = "1";
     this.view.style.minHeight = "0";
+    this.view.addEventListener("relocate", () => this.onRelocate());
   }
 
   getViewElement(): View {
@@ -67,9 +69,25 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     }
   }
 
-  navigate(target: PageTarget | ScrollDelta): void {
-    if (target.kind === "page") {
-      // Navigation handling
+  navigate(target: PageTarget | ScrollDelta | PageTurn): void {
+    switch (target.kind) {
+      case "page":
+        this.view.goTo({ fraction: target.index }).catch(console.error);
+        break;
+      case "scroll":
+        break;
+      case "prev":
+        this.view.prev().catch(console.error);
+        break;
+      case "next":
+        this.view.next().catch(console.error);
+        break;
+      case "left":
+        this.view.goLeft().catch(console.error);
+        break;
+      case "right":
+        this.view.goRight().catch(console.error);
+        break;
     }
   }
 
@@ -85,8 +103,14 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   getCurrentPosition(): DocumentPosition {
     return {
       format: "epub",
-      cfi: this.view.lastLocation?.fraction?.toString() ?? "0",
+      cfi: this.view.lastLocation?.cfi ?? "epubcfi(/0)",
     };
+  }
+
+  getProgress(): number {
+    const fraction = this.view.lastLocation?.fraction;
+    if (typeof fraction !== "number" || Number.isNaN(fraction)) return 0;
+    return Math.min(1, Math.max(0, fraction));
   }
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {
@@ -98,6 +122,13 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     this.readyListeners.add(cb);
     if (this.sessionId) cb();
     return () => this.readyListeners.delete(cb);
+  }
+
+  private onRelocate(): void {
+    const pos = this.getCurrentPosition();
+    for (const listener of this.positionListeners) {
+      listener(pos);
+    }
   }
 
   dispose(): void {
