@@ -1,12 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { View } from "foliate-js/view.js";
+import { epubOutlineToNodes } from "../../shared/outline";
 import type {
   DocumentPosition,
   OutlineNode,
+  PagePosition,
   PageTarget,
   PageTurn,
   ScrollDelta,
   SearchHit,
+  TabViewState,
   Unsubscribe,
   ViewMode,
   ZoomLevel,
@@ -24,11 +27,17 @@ interface EpubMetadata {
   session_id: string;
 }
 
+interface EpubTocEntry {
+  label: string;
+  href: string | null;
+  subitems?: EpubTocEntry[];
+}
+
 export class EpubViewerHandle implements DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities = {
     viewModes: ["pages"],
-    hasOutline: false,
-    hasTextSearch: false,
+    hasOutline: true,
+    hasTextSearch: true,
   };
 
   private sessionId: string | null = null;
@@ -94,10 +103,28 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   setZoom(_level: ZoomLevel): void {}
   setViewMode(_mode: ViewMode): void {}
 
-  async *search(_query: string): AsyncIterable<SearchHit> {}
+  async *search(query: string): AsyncIterable<SearchHit> {
+    if (!query.trim()) return;
+    for await (const result of this.view.search({ query, index: undefined })) {
+      if (typeof result === "string") break;
+      if ("subitems" in result) {
+        for (const item of result.subitems) {
+          yield {
+            destination: { format: "epub", cfi: item.cfi },
+            snippet: item.excerpt ?? "",
+          };
+        }
+      }
+    }
+  }
+
+  clearSearch(): void {
+    this.view.clearSearch();
+  }
 
   async getOutline(): Promise<OutlineNode[]> {
-    return [];
+    const book = this.view.book as { toc?: EpubTocEntry[] } | undefined;
+    return epubOutlineToNodes(book?.toc);
   }
 
   getCurrentPosition(): DocumentPosition {
@@ -111,6 +138,26 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     const fraction = this.view.lastLocation?.fraction;
     if (typeof fraction !== "number" || Number.isNaN(fraction)) return 0;
     return Math.min(1, Math.max(0, fraction));
+  }
+
+  restore(state: TabViewState): void {
+    if (state.zoom) {
+      this.setZoom(state.zoom);
+    }
+    if (state.position.format === "epub" && "cfi" in state.position) {
+      this.view.goTo({ cfi: state.position.cfi }).catch(console.error);
+    }
+  }
+
+  goToPosition(position: PagePosition): void {
+    if (position.format !== "epub") return;
+    const target =
+      "cfi" in position
+        ? { cfi: position.cfi }
+        : position.href
+          ? { href: position.href }
+          : undefined;
+    if (target) this.view.goTo(target).catch(console.error);
   }
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {

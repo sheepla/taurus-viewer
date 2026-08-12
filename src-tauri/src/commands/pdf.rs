@@ -1,4 +1,6 @@
 use crate::error::AppError;
+use crate::pdf::outline::PdfOutlineNode;
+use crate::pdf::search::PdfSearchHit;
 use crate::pdf::session::PdfSessionManager;
 use specta::Type;
 use std::path::PathBuf;
@@ -85,4 +87,35 @@ pub async fn pdf_get_page_dimensions(
 
     let (width, height) = session.get_page_dimensions(page_index)?;
     Ok(PageDimensions { width, height })
+}
+
+/// Returns the document's outline (bookmark tree), if any.
+#[tauri::command]
+#[specta::specta]
+pub async fn pdf_get_outline(
+    session_id: String,
+    session_manager: State<'_, Arc<RwLock<PdfSessionManager>>>,
+) -> Result<Vec<PdfOutlineNode>, AppError> {
+    let manager = session_manager.read().await;
+    let session = manager
+        .get_session(&session_id)
+        .ok_or_else(|| AppError::Pdf("Session not found".into()))?;
+
+    session.get_outline()
+}
+
+/// Returns case-insensitive text-search hits across all pages.
+#[tauri::command]
+#[specta::specta]
+pub async fn pdf_search(
+    session_id: String,
+    query: String,
+    session_manager: State<'_, Arc<RwLock<PdfSessionManager>>>,
+) -> Result<Vec<PdfSearchHit>, AppError> {
+    let manager = session_manager.read().await;
+    let session = manager
+        .get_session(&session_id)
+        .ok_or_else(|| AppError::Pdf("Session not found".into()))?;
+
+    session.search_text(&query)
 }

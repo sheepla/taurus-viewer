@@ -1,20 +1,23 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { AppSidebar } from "@/components/app-sidebar";
+import { DocumentSidebar } from "@/components/DocumentSidebar";
+import { HeaderBar } from "@/components/HeaderBar";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { TabBar } from "@/features/tabs/TabBar";
-import { CommandBar } from "@/features/command-mode/CommandBar";
-import { CommandPalette } from "@/features/command-mode/CommandPalette";
-import { useCommandMode } from "@/features/command-mode/useCommandMode";
-import { registerThemeSetter, registerSettingsOpener } from "@/features/command-mode/executor";
-import { useNavigationKeys } from "@/features/navigation/useNavigationKeys";
-import { StatusBar } from "@/features/navigation/StatusBar";
-import { ViewerNavButtons } from "@/features/navigation/ViewerNavButtons";
-import { Toaster } from "@/components/ui/sonner";
 import { SettingsModal } from "@/components/SettingsModal";
 import { useSettingsModalStore } from "@/components/settingsModalStore";
-import { Settings } from "lucide-react";
+import { Toaster } from "@/components/ui/sonner";
+import { CommandBar } from "@/features/command-mode/CommandBar";
+import { CommandPalette } from "@/features/command-mode/CommandPalette";
+import {
+  registerSettingsOpener,
+  registerThemeSetter,
+} from "@/features/command-mode/executor";
+import { useCommandMode } from "@/features/command-mode/useCommandMode";
+import { StatusBar } from "@/features/navigation/StatusBar";
+import { ViewerNavButtons } from "@/features/navigation/ViewerNavButtons";
+import { useKeyDispatcher } from "@/features/shell/useKeyDispatcher";
+import { TabBar } from "@/features/tabs/TabBar";
+import { useTabPersistence } from "@/features/tabs/useTabPersistence";
 
 function ThemeSync() {
   const { setTheme } = useTheme();
@@ -30,7 +33,8 @@ function ThemeSync() {
 
 function RootLayout() {
   useCommandMode();
-  useNavigationKeys();
+  useKeyDispatcher();
+  useTabPersistence();
   const openSettings = useSettingsModalStore((s) => s.open);
 
   // Global shortcut Ctrl+, for settings
@@ -46,40 +50,28 @@ function RootLayout() {
   }, [openSettings]);
 
   return (
-    <SidebarProvider>
+    <ThemeProvider defaultTheme="system" storageKey="taurus-ui-theme">
       <ThemeSync />
-      <AppSidebar />
-      <SettingsModal />
-      <CommandPalette />
-      <Toaster richColors position="top-right" />
-      <main className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground relative">
-        <div className="flex h-10 items-center justify-between border-b px-3">
-          <SidebarTrigger />
-          <button
-            type="button"
-            onClick={openSettings}
-            aria-label="Settings"
-            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
-          >
-            <Settings size={15} />
-          </button>
-        </div>
+      <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+        <HeaderBar />
         <TabBar />
-        <div className="flex-1 overflow-hidden relative">
-          <Outlet />
-          <CommandBar />
-          <ViewerNavButtons />
+        <div className="flex flex-1 overflow-hidden">
+          <DocumentSidebar />
+          <main className="relative flex-1 overflow-hidden">
+            <Outlet />
+            <CommandBar />
+            <ViewerNavButtons />
+          </main>
         </div>
         <StatusBar />
-      </main>
-    </SidebarProvider>
+        <SettingsModal />
+        <CommandPalette />
+        <Toaster richColors position="top-right" />
+      </div>
+    </ThemeProvider>
   );
 }
 
 export const Route = createRootRoute({
-  component: () => (
-    <ThemeProvider defaultTheme="system" storageKey="taurus-ui-theme">
-      <RootLayout />
-    </ThemeProvider>
-  ),
+  component: RootLayout,
 });

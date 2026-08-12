@@ -1,5 +1,13 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
+import type {
+  DocumentPosition,
+  TabViewState,
+  ViewMode,
+  ZoomLevel,
+} from "../../shared/types";
 
 export type DocumentFormat = "pdf" | "epub";
 
@@ -9,17 +17,33 @@ export interface Tab {
   format: DocumentFormat;
   title: string;
   handle: DocumentViewerHandle | null;
+  /** View state to apply once the viewer handle becomes ready (tab restore). */
+  restoreState: TabViewState | null;
+}
+
+interface ClosedTabRecord {
+  file_path: string;
+  format: string;
+  view_state: string;
 }
 
 interface TabState {
   tabs: Tab[];
   activeTabId: string | null;
-  openTab: (filePath: string, format: DocumentFormat) => void;
+  openTab: (
+    filePath: string,
+    format: DocumentFormat,
+    restoreState?: TabViewState | null,
+  ) => void;
   closeTab: (id: string) => void;
   activateTab: (id: string | null) => void;
   activateNext: () => void;
   activatePrev: () => void;
   setHandle: (id: string, handle: DocumentViewerHandle) => void;
+  /** Clears the pending restore state after the viewer applied it. */
+  setTabRestored: (id: string) => void;
+  /** Pops the most recently closed tab from the persistent stack and reopens it. */
+  restoreLastClosedTab: () => Promise<void>;
 }
 
 let tabCounter = 0;
@@ -34,11 +58,27 @@ function formatTitle(filePath: string): string {
   return parts[parts.length - 1] ?? filePath;
 }
 
+function resolveFormat(filePath: string): DocumentFormat {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  return ext === "epub" ? "epub" : "pdf";
+}
+
+function captureViewState(handle: DocumentViewerHandle): TabViewState {
+  const h = handle as DocumentViewerHandle & {
+    getZoom?: () => ZoomLevel;
+    getViewMode?: () => ViewMode;
+  };
+  const position: DocumentPosition = handle.getCurrentPosition();
+  const zoom = typeof h.getZoom === "function" ? h.getZoom() : 1.0;
+  const viewMode = typeof h.getViewMode === "function" ? h.getViewMode() : "pages";
+  return { position, zoom, viewMode };
+}
+
 export const useTabStore = create<TabState>((set, get) => ({
   tabs: [],
   activeTabId: null,
 
-  openTab(filePath, format) {
+  openTab(filePath, format, restoreState = null) {
     const id = generateTabId();
     const tab: Tab = {
       id,
@@ -46,6 +86,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       format,
       title: formatTitle(filePath),
       handle: null,
+      restoreState,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
   },
@@ -55,8 +96,19 @@ export const useTabStore = create<TabState>((set, get) => ({
     const index = tabs.findIndex((t) => t.id === id);
     if (index === -1) return;
 
-    // Dispose handle before removing.
-    tabs[index]?.handle?.dispose();
+    const tab = tabs[index];
+
+    // Capture the view state and push it onto the closed-tab stack before
+    // disposing the handle so restore can reopen the tab in the same state.
+    if (tab?.handle) {
+      const viewState = captureViewState(tab.handle);
+      void invoke("tab_push_closed", {
+        filePath: tab.filePath,
+        format: tab.format,
+        viewState: JSON.stringify(viewState),
+      }).catch(console.error);
+      tab.handle.dispose();
+    }
 
     const next = tabs.filter((t) => t.id !== id);
     let nextActive = activeTabId;
@@ -94,5 +146,34 @@ export const useTabStore = create<TabState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, handle } : t)),
     }));
+  },
+
+  setTabRestored(id) {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, restoreState: null } : t)),
+    }));
+  },
+
+  async restoreLastClosedTab() {
+    try {
+      const record = await invoke<ClosedTabRecord | null>("tab_pop_closed");
+      if (!record) {
+        toast.info("No closed tab to restore");
+        return;
+      }
+      let viewState: TabViewState | null = null;
+      try {
+        viewState = JSON.parse(record.view_state) as TabViewState;
+      } catch {
+        viewState = null;
+      }
+      get().openTab(
+        record.file_path,
+        resolveFormat(record.file_path),
+        viewState,
+      );
+    } catch (error) {
+      console.error("Failed to restore closed tab:", error);
+    }
   },
 }));

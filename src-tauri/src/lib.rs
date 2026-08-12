@@ -33,6 +33,8 @@ pub fn run() {
         commands::pdf::pdf_open,
         commands::pdf::pdf_close,
         commands::pdf::pdf_get_page_dimensions,
+        commands::pdf::pdf_get_outline,
+        commands::pdf::pdf_search,
         commands::epub::epub_open,
         commands::epub::epub_close,
         commands::library::library_add_folder,
@@ -43,6 +45,12 @@ pub fn run() {
         commands::library::palette_search_library,
         commands::config::config_load,
         commands::config::config_save,
+        commands::tabs::tab_push_closed,
+        commands::tabs::tab_pop_closed,
+        commands::tabs::tab_save_sessions,
+        commands::tabs::tab_load_sessions,
+        commands::bookmarks::bookmark_toggle,
+        commands::bookmarks::bookmark_list,
     ]);
 
     #[cfg(debug_assertions)]

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
+import type { Config } from "../../shared/bindings";
 
 interface PdfViewProps {
   tabId: string;
@@ -80,11 +82,45 @@ function PageItem({
 }
 
 export function PdfView({ tabId, filePath }: PdfViewProps) {
-  const [handle, setHandle] = useState<PdfViewerHandle | null>(null);
-  const [pageCount, setPageCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const setTabHandle = useTabStore((s) => s.setHandle);
+  const setTabRestored = useTabStore((s) => s.setTabRestored);
+  const restoreState = useTabStore(
+    (s) => s.tabs.find((t) => t.id === tabId)?.restoreState ?? null,
+  );
+
+  const viewerQuery = useQuery({
+    queryKey: ["pdf-viewer", tabId, filePath],
+    queryFn: async () => {
+      const viewerHandle = new PdfViewerHandle(filePath);
+      try {
+        await viewerHandle.init();
+      } catch (error) {
+        viewerHandle.dispose();
+        throw error;
+      }
+      return viewerHandle;
+    },
+    staleTime: Infinity,
+    gcTime: 0,
+  });
+
+  const configQuery = useQuery({
+    queryKey: ["config"],
+    queryFn: () => invoke<Config>("config_load"),
+    staleTime: Infinity,
+  });
+
+  const handle = viewerQuery.data ?? null;
+
+  useEffect(() => {
+    if (!handle) return;
+    setTabHandle(tabId, handle);
+    if (restoreState) {
+      handle.restore(restoreState);
+      setTabRestored(tabId);
+    }
+    return () => handle.dispose();
+  }, [handle, tabId, setTabHandle, setTabRestored, restoreState]);
 
   const scrollContainerRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -95,48 +131,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     [handle],
   );
 
-  useEffect(() => {
-    const viewerHandle = new PdfViewerHandle(filePath);
-    setError(null);
-    setLoading(true);
-
-    console.log(`Starting PDF initialization for: ${filePath}`);
-
-    viewerHandle
-      .init()
-      .then(() => {
-        console.log("PDF viewer initialized successfully");
-        setHandle(viewerHandle);
-        setPageCount(viewerHandle.getPageCount());
-        setTabHandle(tabId, viewerHandle);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to initialize PDF viewer:", err);
-        setError(err.message || "Unknown error occurred");
-        setLoading(false);
-      });
-
-    return () => {
-      viewerHandle.dispose();
-    };
-  }, [tabId, filePath, setTabHandle]);
-
-  const [invertColors, setInvertColors] = useState(false);
-
-  useEffect(() => {
-    invoke<any>("config_load")
-      .then((result) => {
-        if (result.status === "ok" && result.data?.document) {
-          setInvertColors(result.data.document.invert_colors);
-        }
-      })
-      .catch((err) => {
-        console.warn("Failed to load config:", err);
-      });
-  }, []);
-
-  if (loading) {
+  if (viewerQuery.isPending) {
     return (
       <div className="flex h-full w-full items-center justify-center text-muted-foreground text-sm">
         <div className="flex flex-col items-center gap-2">
@@ -147,13 +142,13 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     );
   }
 
-  if (error) {
+  if (viewerQuery.isError) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 text-destructive text-sm p-4">
         <div className="text-center max-w-md">
           <div className="font-medium text-lg mb-2">Failed to load PDF</div>
           <div className="text-xs text-muted-foreground mb-4 p-3 bg-muted/20 rounded">
-            {error}
+            {viewerQuery.error?.message ?? "Unknown error occurred"}
           </div>
         </div>
       </div>
@@ -161,6 +156,9 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   }
 
   const sessionId = handle?.getSessionId();
+  const pageCount = handle?.getPageCount() ?? 0;
+  const invertColors = configQuery.data?.document.invert_colors ?? false;
+
   if (!sessionId) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-destructive text-sm">
@@ -178,8 +176,10 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4"
-      ref={scrollContainerRef}>
+    <div
+      className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4"
+      ref={scrollContainerRef}
+    >
       <div className="mx-auto flex flex-col items-center gap-6 max-w-4xl w-full">
         {Array.from({ length: pageCount }, (_, index) => (
           <PageItem

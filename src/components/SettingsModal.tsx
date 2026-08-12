@@ -1,6 +1,6 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { Save } from "lucide-react";
-import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Config } from "../shared/bindings";
 import { useTheme } from "./theme-provider";
@@ -9,32 +9,35 @@ import { useSettingsModalStore } from "./settingsModalStore";
 
 export function SettingsModal() {
   const { isOpen, close } = useSettingsModalStore();
-  const [config, setConfig] = useState<Config | null>(null);
-  const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
   const { setTheme } = useTheme();
 
-  useEffect(() => {
-    if (isOpen) {
-      invoke<Config>("config_load")
-        .then(setConfig)
-        .catch((err) => console.error("Failed to load config:", err));
-    }
-  }, [isOpen]);
+  const configQuery = useQuery({
+    queryKey: ["config"],
+    queryFn: () => invoke<Config>("config_load"),
+    enabled: isOpen,
+  });
 
-  async function handleSave() {
-    if (!config) return;
-    setSaving(true);
-    try {
-      await invoke("config_save", { newConfig: config });
-      setTheme(config.ui.theme as "light" | "dark" | "system");
+  const saveMutation = useMutation({
+    mutationFn: (newConfig: Config) => invoke("config_save", { newConfig }),
+    onSuccess: (_data, newConfig) => {
+      setTheme(newConfig.ui.theme as "light" | "dark" | "system");
       toast.success("Settings saved");
       close();
-    } catch (err) {
-      console.error("Failed to save config:", err);
-      toast.error("Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
+    },
+    onError: () => toast.error("Failed to save settings"),
+  });
+
+  const config = configQuery.data ?? null;
+
+  function updateConfig(updater: (c: Config) => Config) {
+    if (!config) return;
+    queryClient.setQueryData<Config>(["config"], updater(config));
+  }
+
+  function handleSave() {
+    if (!config) return;
+    saveMutation.mutate(config);
   }
 
   return (
@@ -44,11 +47,19 @@ export function SettingsModal() {
           <DialogTitle className="text-xl font-bold">Settings</DialogTitle>
         </DialogHeader>
 
-        {!config ? (
+        {configQuery.isPending && (
           <div className="flex h-32 items-center justify-center text-muted-foreground text-sm">
             Loading settings...
           </div>
-        ) : (
+        )}
+
+        {configQuery.isError && (
+          <div className="flex h-32 items-center justify-center text-destructive text-sm">
+            Failed to load settings.
+          </div>
+        )}
+
+        {config && (
           <div className="space-y-6 py-2">
             {/* Appearance */}
             <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -56,21 +67,15 @@ export function SettingsModal() {
 
               <div className="space-y-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <label htmlFor="modal-theme-select" className="font-medium">Theme</label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Applied immediately on save</p>
-                  </div>
+                  <label htmlFor="modal-theme-select" className="font-medium">Theme</label>
                   <select
                     id="modal-theme-select"
                     value={config.ui.theme}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        ui: {
-                          ...config.ui,
-                          theme: e.target.value as Config["ui"]["theme"],
-                        },
-                      })
+                      updateConfig((c) => ({
+                        ...c,
+                        ui: { ...c.ui, theme: e.target.value as Config["ui"]["theme"] },
+                      }))
                     }
                     className="rounded border border-input bg-background px-3 py-1.5 text-xs shadow-sm outline-none focus:ring-1 focus:ring-ring"
                   >
@@ -89,10 +94,10 @@ export function SettingsModal() {
                     type="checkbox"
                     checked={config.ui.sidebar_open}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        ui: { ...config.ui, sidebar_open: e.target.checked },
-                      })
+                      updateConfig((c) => ({
+                        ...c,
+                        ui: { ...c.ui, sidebar_open: e.target.checked },
+                      }))
                     }
                     className="h-4 w-4 rounded border-input accent-primary"
                   />
@@ -113,14 +118,13 @@ export function SettingsModal() {
                     id="modal-layout-select"
                     value={config.document.default_layout}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateConfig((c) => ({
+                        ...c,
                         document: {
-                          ...config.document,
-                          default_layout: e.target
-                            .value as Config["document"]["default_layout"],
+                          ...c.document,
+                          default_layout: e.target.value as Config["document"]["default_layout"],
                         },
-                      })
+                      }))
                     }
                     className="rounded border border-input bg-background px-3 py-1.5 text-xs shadow-sm outline-none focus:ring-1 focus:ring-ring"
                   >
@@ -143,13 +147,10 @@ export function SettingsModal() {
                     type="checkbox"
                     checked={config.document.invert_colors}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        document: {
-                          ...config.document,
-                          invert_colors: e.target.checked,
-                        },
-                      })
+                      updateConfig((c) => ({
+                        ...c,
+                        document: { ...c.document, invert_colors: e.target.checked },
+                      }))
                     }
                     className="h-4 w-4 rounded border-input accent-primary"
                   />
@@ -172,13 +173,13 @@ export function SettingsModal() {
                     step={0.25}
                     value={config.document.default_zoom?.toString() ?? ""}
                     onChange={(e) =>
-                      setConfig({
-                        ...config,
+                      updateConfig((c) => ({
+                        ...c,
                         document: {
-                          ...config.document,
+                          ...c.document,
                           default_zoom: Number.parseFloat(e.target.value) || 1.0,
                         },
-                      })
+                      }))
                     }
                     className="w-20 rounded border border-input bg-background px-3 py-1.5 text-xs shadow-sm outline-none focus:ring-1 focus:ring-ring"
                   />
@@ -197,11 +198,11 @@ export function SettingsModal() {
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saveMutation.isPending}
                 className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 <Save size={14} />
-                {saving ? "Saving…" : "Save Settings"}
+                {saveMutation.isPending ? "Saving…" : "Save Settings"}
               </button>
             </div>
           </div>

@@ -6,32 +6,15 @@ use std::path::PathBuf;
 pub struct EpubSession {
     // TODO add more metadata properties for general use
     pub id: String,
-    pub file_path: PathBuf,
-    pub title: Option<String>,
-    pub author: Option<String>,
 }
 
 impl EpubSession {
     pub fn new(id: String, file_path: PathBuf) -> Result<Self, AppError> {
-        println!("Creating EPUB session for file: {:?}", file_path);
-
-        let doc = EpubDoc::new(&file_path)
+        // Validate that the file is a parseable EPUB before opening the session.
+        EpubDoc::new(&file_path)
             .map_err(|e| AppError::Epub(format!("Failed to parse EPUB with epub crate: {}", e)))?;
 
-        let title = doc.mdata("title").map(|m| m.value.clone());
-        let author = doc.mdata("creator").map(|m| m.value.clone());
-
-        println!(
-            "EPUB successfully loaded via epub crate: title={:?}, author={:?}",
-            title, author
-        );
-
-        Ok(Self {
-            id,
-            file_path,
-            title,
-            author,
-        })
+        Ok(Self { id })
     }
 }
 

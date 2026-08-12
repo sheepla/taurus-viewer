@@ -1,0 +1,245 @@
+import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useCommandModeStore } from "../command-mode/commandModeStore";
+import { useCommandPaletteStore } from "../command-mode/CommandPalette";
+import { useTabStore } from "../tabs/TabStore";
+import { useUiModeStore } from "./uiModeStore";
+import { makePagePosition } from "../bookmarks/bookmarks";
+import type { DocumentViewerHandle } from "../../shared/viewer-handle";
+import type { PageTurn, ViewMode, ZoomLevel } from "../../shared/types";
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
+function resolveFormat(filePath: string): "pdf" | "epub" {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  return ext === "epub" ? "epub" : "pdf";
+}
+
+function getActiveHandle(): DocumentViewerHandle | null {
+  const state = useTabStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  return tab?.handle ?? null;
+}
+
+function zoomStep(handle: DocumentViewerHandle, factor: number): void {
+  const getZoom = (handle as DocumentViewerHandle & { getZoom?: () => ZoomLevel })
+    .getZoom;
+  const current = typeof getZoom === "function" ? getZoom() ?? 1.0 : 1.0;
+  const next = Math.max(0.25, Math.min(4.0, current * factor));
+  handle.setZoom(next);
+}
+
+function toggleViewMode(handle: DocumentViewerHandle): void {
+  const getViewMode = (
+    handle as DocumentViewerHandle & { getViewMode?: () => ViewMode }
+  ).getViewMode;
+  const current =
+    typeof getViewMode === "function" ? getViewMode() ?? "scroll" : "scroll";
+  const next: ViewMode = current === "scroll" ? "pages" : "scroll";
+  if (handle.capabilities.viewModes.includes(next)) {
+    handle.setViewMode(next);
+  } else {
+    toast.info(`View mode "${next}" is not supported for this document`);
+  }
+}
+
+function toggleBookmark(
+  queryClient: ReturnType<typeof useQueryClient>,
+): void {
+  const state = useTabStore.getState();
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (!tab?.handle) return;
+
+  const position = makePagePosition(tab.handle.getCurrentPosition());
+  void invoke<boolean>("bookmark_toggle", {
+    filePath: tab.filePath,
+    format: tab.format,
+    pagePosition: JSON.stringify(position),
+  })
+    .then((nowBookmarked) => {
+      toast.info(nowBookmarked ? "Bookmark added" : "Bookmark removed");
+      void queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
+    })
+    .catch(console.error);
+}
+
+/**
+ * Global keyboard dispatcher.
+ *
+ * - Handles document navigation (page turns) and mode transitions
+ *   (NORMAL/SEARCH/TREE/BOOKMARKS) for the active document tab.
+ * - Tab shortcuts (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W, Ctrl+number,
+ *   Ctrl+Shift+T) are handled here as well.
+ * - Command bar input and the command palette suspend these bindings.
+ */
+export function useKeyDispatcher(): void {
+  const isCommandBarOpen = useCommandModeStore((s) => s.isOpen);
+  const isPaletteOpen = useCommandPaletteStore((s) => s.isOpen);
+  const currentMode = useUiModeStore((s) => s.currentMode);
+  const setMode = useUiModeStore((s) => s.setMode);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isCommandBarOpen || isPaletteOpen) return;
+      if (isEditableTarget(e.target)) return;
+
+      // Tab management shortcuts (Ctrl-combinations).
+      if (e.ctrlKey || e.metaKey) {
+        const store = useTabStore.getState();
+        const key = e.key.toLowerCase();
+
+        if (key === "w") {
+          e.preventDefault();
+          const active = store.activeTabId;
+          if (active) {
+            store.closeTab(active);
+          } else {
+            window.close();
+          }
+          return;
+        }
+
+        if (key === "tab") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            store.activatePrev();
+          } else {
+            store.activateNext();
+          }
+          navigate({ to: "/" });
+          return;
+        }
+
+        if (key === "t" && e.shiftKey) {
+          e.preventDefault();
+          void store.restoreLastClosedTab().then(() => navigate({ to: "/" }));
+          return;
+        }
+
+        if (/^[1-9]$/.test(key)) {
+          e.preventDefault();
+          const index = Number.parseInt(key, 10) - 1;
+          const tab = store.tabs[index];
+          if (tab) {
+            store.activateTab(tab.id);
+            navigate({ to: "/" });
+          }
+          return;
+        }
+
+        return;
+      }
+
+      if (e.altKey) return;
+
+      // Escape returns to NORMAL from any mode.
+      if (e.key === "Escape") {
+        if (currentMode !== "NORMAL") {
+          setMode("NORMAL");
+        }
+        return;
+      }
+
+      const handle = getActiveHandle();
+
+      // Mode-specific handling: in sidebar modes only Esc is handled here.
+      // Feature-specific keys (search, tree navigation, bookmarks) are owned
+      // by the respective sidebar panels (implemented in later phases).
+      if (currentMode !== "NORMAL") return;
+
+      if (!handle) return;
+
+      const key = e.key.toLowerCase();
+
+      // Mode transitions.
+      if (key === "/") {
+        e.preventDefault();
+        setMode("SEARCH");
+        return;
+      }
+      if (key === "t") {
+        e.preventDefault();
+        setMode("TREE");
+        return;
+      }
+      if (key === "b" && e.shiftKey) {
+        e.preventDefault();
+        setMode("BOOKMARKS");
+        return;
+      }
+      if (key === "m") {
+        e.preventDefault();
+        toggleBookmark(queryClient);
+        return;
+      }
+
+      // View control.
+      if (key === "s") {
+        e.preventDefault();
+        toggleViewMode(handle);
+        return;
+      }
+      if (e.key === "=") {
+        e.preventDefault();
+        handle.setZoom(1.0);
+        return;
+      }
+      if (e.key === "+") {
+        e.preventDefault();
+        zoomStep(handle, 1.25);
+        return;
+      }
+      if (e.key === "-") {
+        e.preventDefault();
+        zoomStep(handle, 0.8);
+        return;
+      }
+
+      // Open a document from the file manager.
+      if (key === "o") {
+        e.preventDefault();
+        void (async () => {
+          const { open } = await import("@tauri-apps/plugin-dialog");
+          const selected = await open({
+            multiple: false,
+            filters: [{ name: "Documents", extensions: ["pdf", "epub"] }],
+          });
+          if (selected && typeof selected === "string") {
+            useTabStore.getState().openTab(selected, resolveFormat(selected));
+            navigate({ to: "/" });
+          }
+        })();
+        return;
+      }
+
+      // Page turns.
+      let turn: PageTurn;
+      if (key === "arrowright" || key === "l") {
+        turn = { kind: "right" };
+      } else if (key === "arrowleft" || key === "h") {
+        turn = { kind: "left" };
+      } else if (key === " " || key === "pagedown") {
+        turn = { kind: e.shiftKey ? "prev" : "next" };
+      } else if (key === "pageup") {
+        turn = { kind: "prev" };
+      } else {
+        return;
+      }
+      e.preventDefault();
+      handle.navigate(turn);
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isCommandBarOpen, isPaletteOpen, currentMode, setMode, navigate]);
+}

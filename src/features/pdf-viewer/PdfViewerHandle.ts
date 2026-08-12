@@ -1,12 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PdfMetadata } from "../../shared/bindings";
+import type { PdfMetadata, PdfOutlineNode, PdfSearchHit } from "../../shared/bindings";
+import { pdfOutlineToNodes } from "../../shared/outline";
 import type {
   DocumentPosition,
   OutlineNode,
+  PagePosition,
   PageTarget,
   PageTurn,
   ScrollDelta,
   SearchHit,
+  TabViewState,
   Unsubscribe,
   ViewMode,
   ZoomLevel,
@@ -20,7 +23,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities = {
     viewModes: ["scroll", "pages"],
     hasOutline: true,
-    hasTextSearch: false,
+    hasTextSearch: true,
   };
 
   private sessionId: string | null = null;
@@ -103,12 +106,30 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     }
   }
 
-  async *search(_query: string): AsyncIterable<SearchHit> {
-    // Search to be wired
+  async *search(query: string): AsyncIterable<SearchHit> {
+    if (!this.sessionId || !query.trim()) return;
+    const hits = await invoke<PdfSearchHit[]>("pdf_search", {
+      sessionId: this.sessionId,
+      query,
+    });
+    for (const hit of hits) {
+      yield {
+        destination: { format: "pdf", pageIndex: hit.page_index },
+        snippet: hit.snippet,
+      };
+    }
+  }
+
+  clearSearch(): void {
+    // PDF rendering has no highlight overlay; nothing to clear.
   }
 
   async getOutline(): Promise<OutlineNode[]> {
-    return [];
+    if (!this.sessionId) return [];
+    const nodes = await invoke<PdfOutlineNode[]>("pdf_get_outline", {
+      sessionId: this.sessionId,
+    });
+    return pdfOutlineToNodes(nodes);
   }
 
   getCurrentPosition(): DocumentPosition {
@@ -123,6 +144,25 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   getProgress(): number {
     if (this.pageCount <= 1) return 0;
     return Math.min(1, Math.max(0, this.currentPage / (this.pageCount - 1)));
+  }
+
+  restore(state: TabViewState): void {
+    this.zoomLevel = state.zoom ?? 1.0;
+    if (state.viewMode) {
+      this.setViewMode(state.viewMode);
+    }
+    if (state.position.format === "pdf") {
+      this.scrollToPage(state.position.pageIndex);
+      if (this.scrollContainer && state.position.scrollOffset > 0) {
+        this.scrollContainer.scrollTop = state.position.scrollOffset;
+      }
+    }
+  }
+
+  goToPosition(position: PagePosition): void {
+    if (position.format === "pdf") {
+      this.scrollToPage(position.pageIndex);
+    }
   }
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {

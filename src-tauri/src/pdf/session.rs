@@ -1,4 +1,6 @@
 use crate::error::AppError;
+use crate::pdf::outline::{collect_outline, PdfOutlineNode};
+use crate::pdf::search::{find_matches, PdfSearchHit};
 use pdfium_render::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -165,6 +167,46 @@ impl PdfSession {
         Ok((width, height))
     }
 
+    pub fn get_outline(&self) -> Result<Vec<PdfOutlineNode>, AppError> {
+        let pdfium = self.create_session_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_file(&self.file_path, None)
+            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
+
+        Ok(collect_outline(&document))
+    }
+
+    pub fn search_text(&self, query: &str) -> Result<Vec<PdfSearchHit>, AppError> {
+        const MAX_RESULTS: usize = 200;
+
+        let pdfium = self.create_session_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_file(&self.file_path, None)
+            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
+
+        let pages = document.pages();
+        let mut hits = Vec::new();
+
+        for page_index in 0..pages.len() {
+            if hits.len() >= MAX_RESULTS {
+                break;
+            }
+            let page = pages
+                .get(page_index)
+                .map_err(|e| AppError::Pdf(e.to_string()))?;
+            let text = page.text().map_err(|e| AppError::Pdf(e.to_string()))?.all();
+
+            for snippet in find_matches(&text, query, MAX_RESULTS - hits.len()) {
+                hits.push(PdfSearchHit {
+                    page_index: page_index as u32,
+                    snippet,
+                });
+            }
+        }
+
+        Ok(hits)
+    }
+
     pub fn render_page(&self, page_index: u16, target_width: u32) -> Result<Vec<u8>, AppError> {
         let pdfium = self.create_session_pdfium()?;
         let document = pdfium
@@ -233,5 +275,37 @@ impl PdfSessionManager {
 impl Default for PdfSessionManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_session() -> PdfSession {
+        PdfSession::new(
+            "test_session".to_string(),
+            PathBuf::from("../testdata/sample-multilingual-text.pdf"),
+            None,
+        )
+        .expect("open testdata PDF")
+    }
+
+    #[test]
+    fn extracts_outline_from_sample() {
+        let outline = test_session().get_outline().expect("get outline");
+        assert!(!outline.is_empty());
+        assert_eq!(outline[0].title, "English:");
+        assert_eq!(outline[0].page_index, 0);
+    }
+
+    #[test]
+    fn searches_text_case_insensitively() {
+        let hits = test_session().search_text("rich").expect("search text");
+        assert!(hits.len() >= 3);
+        assert!(hits[0].snippet.contains("rich"));
+
+        let missing = test_session().search_text("wisdom").expect("search text");
+        assert!(missing.is_empty());
     }
 }

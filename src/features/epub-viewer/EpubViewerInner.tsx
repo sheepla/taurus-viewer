@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { BookOpen } from "lucide-react";
@@ -12,74 +12,67 @@ interface EpubViewerInnerProps {
 
 export function EpubViewerInner({ tabId, filePath }: EpubViewerInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [initializing, setInitializing] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const setTabHandle = useTabStore((s) => s.setHandle);
+  const setTabRestored = useTabStore((s) => s.setTabRestored);
+  const restoreState = useTabStore(
+    (s) => s.tabs.find((t) => t.id === tabId)?.restoreState ?? null,
+  );
 
-  const { data: bytes, isPending, isError, error: readError } = useQuery({
-    queryKey: ["epub-file", filePath],
-    queryFn: () => readFile(filePath),
+  const viewerQuery = useQuery({
+    queryKey: ["epub-viewer", tabId, filePath],
+    queryFn: async () => {
+      const bytes = await readFile(filePath);
+      const filename =
+        filePath.replace(/\\/g, "/").split("/").pop() ?? "book.epub";
+      const file = new File([bytes], filename, { type: "application/epub+zip" });
+      const viewerHandle = new EpubViewerHandle(filePath);
+      const container = containerRef.current;
+      if (container) {
+        container.innerHTML = "";
+        container.appendChild(viewerHandle.getViewElement());
+      }
+      try {
+        await viewerHandle.init(file);
+      } catch (error) {
+        viewerHandle.dispose();
+        throw error;
+      }
+      return viewerHandle;
+    },
     staleTime: Infinity,
+    gcTime: 0,
   });
 
+  const handle = viewerQuery.data ?? null;
+
   useEffect(() => {
-    if (!bytes) return;
-    let isCancelled = false;
-    const filename = filePath.replace(/\\/g, "/").split("/").pop() ?? "book.epub";
-    const file = new File([bytes], filename, { type: "application/epub+zip" });
-    const viewerHandle = new EpubViewerHandle(filePath);
-    setError(null);
-    setInitializing(true);
-
-    const container = containerRef.current;
-    if (container) {
-      container.innerHTML = "";
-      container.appendChild(viewerHandle.getViewElement());
+    if (!handle) return;
+    setTabHandle(tabId, handle);
+    if (restoreState) {
+      handle.restore(restoreState);
+      setTabRestored(tabId);
     }
-
-    viewerHandle
-      .init(file)
-      .then(() => {
-        if (isCancelled) {
-          viewerHandle.dispose();
-          return;
-        }
-        setTabHandle(tabId, viewerHandle);
-      })
-      .catch((err) => {
-        if (isCancelled) return;
-        console.error("Failed to initialize EPUB viewer:", err);
-        setError(err.message || "Unknown error occurred");
-      })
-      .finally(() => {
-        if (!isCancelled) setInitializing(false);
-      });
-
-    return () => {
-      isCancelled = true;
-      viewerHandle.dispose();
-      if (container) container.innerHTML = "";
-    };
-  }, [bytes, tabId, filePath, setTabHandle]);
+    return () => handle.dispose();
+  }, [handle, tabId, setTabHandle, setTabRestored, restoreState]);
 
   return (
     <div className="relative flex h-full w-full flex-col bg-background overflow-hidden">
       <div ref={containerRef} className="flex-1 w-full h-full min-h-0 flex flex-col" />
-      {(isPending || (bytes && initializing)) && (
+      {viewerQuery.isPending && (
         <div className="absolute inset-0 flex items-center justify-center bg-background text-muted-foreground text-sm">
           <div className="flex flex-col items-center gap-2">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-current"></div>
-            <div>Loading EPUB with foliate-js...</div>
+            <div>Loading EPUB...</div>
           </div>
         </div>
       )}
-      {(isError || !bytes || error) && (
+      {viewerQuery.isError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background text-destructive text-sm p-4">
           <BookOpen size={64} className="opacity-30" />
           <div className="text-center max-w-md">
             <div className="font-medium text-lg mb-2">Failed to load EPUB</div>
             <div className="text-xs text-muted-foreground mb-4 p-3 bg-muted/20 rounded">
-              {readError?.message ?? error ?? "Unknown error occurred"}
+              {viewerQuery.error?.message ?? "Unknown error occurred"}
             </div>
           </div>
         </div>

@@ -60,7 +60,7 @@ describe("TaurusViewer E2E Test Suite", () => {
   async function openEpubFromPalette() {
     const body = await $("body");
     await body.click();
-    await browser.keys(["Control", "p"]);
+    await browser.keys(["Control", "k"]);
     const entry = await $('[role="button"]*=EPUB Sample');
     await entry.waitForDisplayed({ timeout: 5000 });
     await entry.click();
@@ -101,10 +101,10 @@ describe("TaurusViewer E2E Test Suite", () => {
     await expect(commandInput).toBeDisplayed();
   });
 
-  it("should open command palette when pressing Ctrl+P", async () => {
+  it("should open command palette when pressing Ctrl+K", async () => {
     const body = await $("body");
     await body.click();
-    await browser.keys(["Control", "p"]);
+    await browser.keys(["Control", "k"]);
     const paletteInput = await $('input[placeholder="Search open tabs or library documents..."]');
     await expect(paletteInput).toBeDisplayed();
   });
@@ -127,7 +127,7 @@ describe("TaurusViewer E2E Test Suite", () => {
       },
     );
 
-    const statusBar = await $("main .border-t");
+    const statusBar = await $('[data-testid="status-bar"]');
     await expect(statusBar).toHaveText(/(\d+%|Page \d+ \/ \d+)/);
   });
 
@@ -145,5 +145,47 @@ describe("TaurusViewer E2E Test Suite", () => {
         timeoutMsg: "fraction did not advance after clicking Next page",
       },
     );
+  });
+
+  it("should show the document outline in TREE mode", async () => {
+    await openEpubFromPalette();
+    await browser.keys(["t"]);
+    const treeItem = await $("aside ul li button");
+    await treeItem.waitForDisplayed({ timeout: 5000 });
+    await expect(treeItem).toBeDisplayed();
+  });
+
+  it("should search the document text in SEARCH mode", async () => {
+    await openEpubFromPalette();
+
+    // The 1MB sample is a pathological search case (8457 identical
+    // occurrences of every word), so the full-text search is stubbed at the
+    // foliate-view instance to keep the test deterministic. This exercises
+    // the SEARCH-mode wiring: the input, the async-iterable consumption and
+    // the highlighted result rendering.
+    await browser.execute(() => {
+      const v = document.querySelector("foliate-view") as any;
+      v.clearSearch = () => {};
+      v.search = async function* () {
+        yield {
+          label: "ch001",
+          subitems: [
+            { cfi: "epubcfi(/6/4!/4/1:0)", excerpt: "ch001.xhtml Lorem ipsum" },
+          ],
+        };
+        yield "done";
+      };
+    });
+
+    await browser.keys(["/"]);
+    const searchInput = await $('input[aria-label="Search in document"]');
+    await searchInput.waitForDisplayed({ timeout: 5000 });
+    await searchInput.click();
+    await browser.keys(["xhtml"]);
+    await browser.keys(["Enter"]);
+
+    const resultMark = await $("aside mark");
+    await resultMark.waitForDisplayed({ timeout: 10000 });
+    await expect(resultMark).toHaveText(/xhtml/i);
   });
 });

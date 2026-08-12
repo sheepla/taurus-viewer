@@ -1,10 +1,12 @@
 import type {
   DocumentPosition,
   OutlineNode,
+  PagePosition,
   PageTarget,
   PageTurn,
   ScrollDelta,
   SearchHit,
+  TabViewState,
   Unsubscribe,
   ViewMode,
   ZoomLevel,
@@ -37,11 +39,17 @@ export interface DocumentViewerHandle {
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */
   setViewMode(mode: ViewMode): void;
   search(query: string): AsyncIterable<SearchHit>;
+  /** Removes any search-result highlights currently shown in the document. */
+  clearSearch(): void;
   getOutline(): Promise<OutlineNode[]>;
   /** Called when tab state is persisted (e.g. on close or app exit). */
   getCurrentPosition(): DocumentPosition;
   /** Current reading progress as a fraction in [0, 1]. */
   getProgress(): number;
+  /** Restores a persisted view state (tab restore / closed-tab reopen). */
+  restore(state: TabViewState): void;
+  /** Jumps to a page-scoped position (e.g. a bookmark). */
+  goToPosition(position: PagePosition): void;
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe;
   onReady(cb: () => void): Unsubscribe;

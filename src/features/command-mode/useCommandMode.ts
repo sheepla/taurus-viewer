@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useCommandModeStore } from './commandModeStore';
 import { useCommandPaletteStore } from './CommandPalette';
+import { useUiModeStore } from '../shell/uiModeStore';
 
 export function useCommandMode() {
   const openCommandBar = useCommandModeStore((s) => s.open);
@@ -12,12 +13,24 @@ export function useCommandMode() {
   const closePalette = useCommandPaletteStore((s) => s.close);
   const isPaletteOpen = useCommandPaletteStore((s) => s.isOpen);
 
+  const setMode = useUiModeStore((s) => s.setMode);
+  const currentMode = useUiModeStore((s) => s.currentMode);
+
+  // Keep the COMMAND mode in sync with the command bar visibility.
+  useEffect(() => {
+    if (isCommandBarOpen) {
+      setMode('COMMAND');
+    } else if (currentMode === 'COMMAND') {
+      setMode('NORMAL');
+    }
+  }, [isCommandBarOpen, currentMode, setMode]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
 
-      // Ctrl+P or Ctrl+K — Command Palette
-      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'p' || e.key.toLowerCase() === 'k')) {
+      // Ctrl+K — Command Palette (mode-independent overlay)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         e.stopPropagation();
         if (isPaletteOpen) {

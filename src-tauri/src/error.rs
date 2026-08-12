@@ -9,9 +9,6 @@ pub enum AppError {
     #[error("EPUB error: {0}")]
     Epub(String),
 
-    #[error("Library scan error: {0}")]
-    LibraryScan(String),
-
     #[error("Database error: {0}")]
     Database(String),
 
@@ -20,9 +17,6 @@ pub enum AppError {
 
     #[error("IO error: {0}")]
     Io(String),
-
-    #[error("Protocol error: {0}")]
-    Protocol(String),
 }
 
 impl From<std::io::Error> for AppError {

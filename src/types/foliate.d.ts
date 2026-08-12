@@ -9,6 +9,36 @@ declare module "foliate-js/view.js" {
     [key: string]: unknown;
   }
 
+  /** A single match yielded by `View.search`. */
+  export interface SearchResultItem {
+    cfi: string;
+    excerpt: string;
+  }
+
+  /** Progress report yielded between search results. */
+  export interface SearchProgress {
+    progress: number;
+  }
+
+  /** Section-scoped results (when `index` is set). */
+  export interface SearchSectionResult extends SearchResultItem {}
+
+  /** Book-wide results: one `SearchSectionResult[]` group per section. */
+  export interface SearchBookResult {
+    index: number;
+    subitems: SearchResultItem[];
+  }
+
+  export type SearchResult =
+    | SearchProgress
+    | SearchSectionResult
+    | SearchBookResult;
+
+  export interface SearchOptions {
+    query: string;
+    index?: number | undefined;
+  }
+
   export class View extends HTMLElement {
     isFixedLayout: boolean;
     lastLocation: LastLocation;
@@ -23,6 +53,8 @@ declare module "foliate-js/view.js" {
     prev(): Promise<any>;
     goLeft(): Promise<any>;
     goRight(): Promise<any>;
+    search(options: SearchOptions): AsyncIterable<SearchResult | string>;
+    clearSearch(): void;
     addEventListener(
       type: "relocate",
       listener: (this: View, event: CustomEvent) => void,

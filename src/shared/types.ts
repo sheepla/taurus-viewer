@@ -14,6 +14,13 @@ export type PageTurn =
   | { kind: "left" }
   | { kind: "right" };
 
+/** Serialized per-tab view state persisted for tab restore (JSON in SQLite). */
+export type TabViewState = {
+  position: DocumentPosition;
+  zoom: ZoomLevel;
+  viewMode: ViewMode;
+};
+
 /** Uniform representation of the current reading position (used for tab restore). */
 export type DocumentPosition =
   | {
@@ -24,21 +31,33 @@ export type DocumentPosition =
     }
   | { format: "epub"; cfi: string };
 
+/**
+ * Minimal, page-scoped position used as a stable bookmark key (PDF keyed on
+ * the page index, EPUB on the CFI). Also used as a jump destination for
+ * outline entries and search hits; EPUB outline entries navigate by href
+ * (as produced by foliate-js `book.toc`), which `view.goTo()` accepts.
+ * A subset of `DocumentPosition`.
+ */
+export type PagePosition =
+  | { format: "pdf"; pageIndex: number }
+  | { format: "epub"; cfi: string }
+  | { format: "epub"; href: string };
+
 /** Zoom level: a numeric scale factor (1.0 = 100%). */
 export type ZoomLevel = number;
 
 export type ViewMode = "scroll" | "pages";
 
 export type SearchHit = {
-  pageIndex: number;
-  /** Character offset within the page text. */
-  charOffset: number;
+  /** Destination to jump to when the hit is selected. */
+  destination: PagePosition;
+  /** Text surrounding the match, for display in the results list. */
   snippet: string;
 };
 
 export type OutlineNode = {
   title: string;
-  destination: PageTarget;
+  destination: PagePosition;
   children: OutlineNode[];
 };
 
