@@ -5,8 +5,6 @@ import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type {
   DocumentPosition,
   TabViewState,
-  ViewMode,
-  ZoomLevel,
 } from "../../shared/types";
 
 export type DocumentFormat = "pdf" | "epub";
@@ -64,13 +62,9 @@ function resolveFormat(filePath: string): DocumentFormat {
 }
 
 function captureViewState(handle: DocumentViewerHandle): TabViewState {
-  const h = handle as DocumentViewerHandle & {
-    getZoom?: () => ZoomLevel;
-    getViewMode?: () => ViewMode;
-  };
   const position: DocumentPosition = handle.getCurrentPosition();
-  const zoom = typeof h.getZoom === "function" ? h.getZoom() : 1.0;
-  const viewMode = typeof h.getViewMode === "function" ? h.getViewMode() : "pages";
+  const zoom = typeof handle.getZoom === "function" ? handle.getZoom() : 1.0;
+  const viewMode = typeof handle.getViewMode === "function" ? handle.getViewMode() : "pages";
   return { position, zoom, viewMode };
 }
 

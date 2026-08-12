@@ -66,6 +66,14 @@ pub struct BookmarkRecord {
     pub created_at: String,
 }
 
+/// Result of an upsert; `changed` is true when a row was inserted or its
+/// size/mtime/status changed (used to decide thumbnail regeneration).
+#[derive(Debug)]
+pub struct UpsertResult {
+    pub entry_id: i64,
+    pub changed: bool,
+}
+
 impl DbCache {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -123,17 +131,30 @@ impl DbCache {
         title: &str,
         size: i64,
         mtime: i64,
-    ) -> Result<i64, AppError> {
+        error_message: Option<&str>,
+    ) -> Result<UpsertResult, AppError> {
         let path_str = path.to_string_lossy();
         let now = chrono::Utc::now().to_rfc3339();
+        let status = if error_message.is_some() {
+            "error"
+        } else {
+            "ok"
+        };
 
         let res = sqlx::query(
-            "INSERT INTO library_entries (folder_id, path, format, title, size, mtime, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'ready', ?, ?)
+            "INSERT INTO library_entries (folder_id, path, format, title, size, mtime, status, error_message, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(path) DO UPDATE SET
+               folder_id=excluded.folder_id,
                size=excluded.size,
                mtime=excluded.mtime,
-               updated_at=excluded.updated_at",
+               status=excluded.status,
+               error_message=excluded.error_message,
+               updated_at=excluded.updated_at
+             WHERE library_entries.size != excluded.size
+                OR library_entries.mtime != excluded.mtime
+                OR library_entries.status != excluded.status
+                OR library_entries.folder_id != excluded.folder_id",
         )
         .bind(folder_id)
         .bind(path_str.as_ref())
@@ -141,12 +162,59 @@ impl DbCache {
         .bind(title)
         .bind(size)
         .bind(mtime)
+        .bind(status)
+        .bind(error_message)
         .bind(&now)
         .bind(&now)
         .execute(&self.pool)
         .await?;
 
-        Ok(res.last_insert_rowid())
+        let changed = res.rows_affected() == 1;
+
+        let entry_id =
+            sqlx::query_scalar::<_, i64>("SELECT id FROM library_entries WHERE path = ?")
+                .bind(path_str.as_ref())
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(UpsertResult { entry_id, changed })
+    }
+
+    /// Deletes entries of a folder whose files no longer exist on disk (6.5).
+    pub async fn delete_entries_not_in(
+        &self,
+        folder_id: i64,
+        keep_paths: &[String],
+    ) -> Result<(), AppError> {
+        if keep_paths.is_empty() {
+            sqlx::query("DELETE FROM library_entries WHERE folder_id = ?")
+                .bind(folder_id)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            let mut query =
+                String::from("DELETE FROM library_entries WHERE folder_id = ? AND path NOT IN (");
+            let placeholders: Vec<String> = (0..keep_paths.len()).map(|_| "?".into()).collect();
+            query.push_str(&placeholders.join(", "));
+            query.push(')');
+
+            let mut q = sqlx::query(&query).bind(folder_id);
+            for path in keep_paths {
+                q = q.bind(path);
+            }
+            q.execute(&self.pool).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn update_folder_scanned_at(&self, folder_id: i64) -> Result<(), AppError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query("UPDATE library_folders SET last_scanned_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(folder_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn update_thumbnail(

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "./TabStore";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
-import type { TabViewState, ViewMode, ZoomLevel } from "../../shared/types";
+import type { TabViewState } from "../../shared/types";
 
 interface TabSessionRecord {
   position_index: number;
@@ -19,12 +19,8 @@ interface PersistedTab {
 }
 
 function captureViewState(handle: DocumentViewerHandle): TabViewState {
-  const h = handle as DocumentViewerHandle & {
-    getZoom?: () => ZoomLevel;
-    getViewMode?: () => ViewMode;
-  };
-  const zoom = typeof h.getZoom === "function" ? h.getZoom() : 1.0;
-  const viewMode = typeof h.getViewMode === "function" ? h.getViewMode() : "scroll";
+  const zoom = typeof handle.getZoom === "function" ? handle.getZoom() : 1.0;
+  const viewMode = typeof handle.getViewMode === "function" ? handle.getViewMode() : "scroll";
   return { position: handle.getCurrentPosition(), zoom, viewMode };
 }
 

@@ -26,10 +26,7 @@ function ProgressText({
 }
 
 function currentViewMode(handle: DocumentViewerHandle): ViewMode {
-  const getViewMode = (handle as DocumentViewerHandle & {
-    getViewMode?: () => ViewMode;
-  }).getViewMode;
-  return typeof getViewMode === "function" ? getViewMode() : "scroll";
+  return typeof handle.getViewMode === "function" ? handle.getViewMode() : "scroll";
 }
 
 export function StatusBar() {

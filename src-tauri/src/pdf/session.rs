@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::pdf::outline::{collect_outline, PdfOutlineNode};
+use crate::pdf::recolor::{apply_recolor, RenderTheme};
 use crate::pdf::search::{find_matches, PdfSearchHit};
 use pdfium_render::prelude::*;
 use std::collections::HashMap;
@@ -207,7 +208,14 @@ impl PdfSession {
         Ok(hits)
     }
 
-    pub fn render_page(&self, page_index: u16, target_width: u32) -> Result<Vec<u8>, AppError> {
+    pub fn render_page_recolored(
+        &self,
+        page_index: u16,
+        target_width: u32,
+        theme: RenderTheme,
+        saturation: u32,
+        contrast: u32,
+    ) -> Result<Vec<u8>, AppError> {
         let pdfium = self.create_session_pdfium()?;
         let document = pdfium
             .load_pdf_from_file(&self.file_path, None)
@@ -224,7 +232,9 @@ impl PdfSession {
             .render_with_config(&render_config)
             .map_err(|e| AppError::Pdf(format!("Failed to render page: {}", e)))?;
 
-        let image = bitmap.as_image().into_rgba8();
+        let mut image = bitmap.as_image().into_rgba8();
+
+        apply_recolor(image.as_mut(), theme, saturation, contrast);
 
         let mut buffer = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut buffer);

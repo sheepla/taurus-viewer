@@ -5,7 +5,8 @@ import type { SearchHit } from "../../shared/types";
 
 /** Renders a snippet with every (case-insensitive) query occurrence marked. */
 function MarkedSnippet({ text, query }: { text: string; query: string }) {
-  const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, "gi"));
+  const safeText = typeof text === "string" ? text : String(text ?? "");
+  const parts = safeText.split(new RegExp(`(${escapeRegExp(query)})`, "gi"));
   return (
     <span className="whitespace-pre-wrap break-words">
       {parts.map((part, index) =>

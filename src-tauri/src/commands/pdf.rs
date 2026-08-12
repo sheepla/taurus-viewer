@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::pdf::outline::PdfOutlineNode;
+use crate::pdf::render_cache::PdfRenderService;
 use crate::pdf::search::PdfSearchHit;
 use crate::pdf::session::PdfSessionManager;
 use specta::Type;
@@ -61,14 +62,16 @@ pub async fn pdf_open(
     })
 }
 
-/// Closes a PDF session and releases resources.
+/// Closes a PDF session and releases resources, including its cache entries.
 #[tauri::command]
 #[specta::specta]
 pub async fn pdf_close(
     session_id: String,
     session_manager: State<'_, Arc<RwLock<PdfSessionManager>>>,
+    render_service: State<'_, PdfRenderService>,
 ) -> Result<(), AppError> {
     session_manager.write().await.close_session(&session_id);
+    render_service.clear_session(&session_id).await;
     Ok(())
 }
 

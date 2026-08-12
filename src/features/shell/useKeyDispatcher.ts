@@ -9,7 +9,7 @@ import { useTabStore } from "../tabs/TabStore";
 import { useUiModeStore } from "./uiModeStore";
 import { makePagePosition } from "../bookmarks/bookmarks";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
-import type { PageTurn, ViewMode, ZoomLevel } from "../../shared/types";
+import type { PageTurn, ViewMode } from "../../shared/types";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -30,19 +30,14 @@ function getActiveHandle(): DocumentViewerHandle | null {
 }
 
 function zoomStep(handle: DocumentViewerHandle, factor: number): void {
-  const getZoom = (handle as DocumentViewerHandle & { getZoom?: () => ZoomLevel })
-    .getZoom;
-  const current = typeof getZoom === "function" ? getZoom() ?? 1.0 : 1.0;
+  const current = typeof handle.getZoom === "function" ? handle.getZoom() ?? 1.0 : 1.0;
   const next = Math.max(0.25, Math.min(4.0, current * factor));
   handle.setZoom(next);
 }
 
 function toggleViewMode(handle: DocumentViewerHandle): void {
-  const getViewMode = (
-    handle as DocumentViewerHandle & { getViewMode?: () => ViewMode }
-  ).getViewMode;
   const current =
-    typeof getViewMode === "function" ? getViewMode() ?? "scroll" : "scroll";
+    typeof handle.getViewMode === "function" ? handle.getViewMode() ?? "scroll" : "scroll";
   const next: ViewMode = current === "scroll" ? "pages" : "scroll";
   if (handle.capabilities.viewModes.includes(next)) {
     handle.setViewMode(next);
@@ -165,6 +160,13 @@ export function useKeyDispatcher(): void {
       if (key === "/") {
         e.preventDefault();
         setMode("SEARCH");
+        setTimeout(() => {
+          document
+            .querySelector<HTMLInputElement>(
+              'input[aria-label="Search in document"]',
+            )
+            ?.focus();
+        }, 50);
         return;
       }
       if (key === "t") {

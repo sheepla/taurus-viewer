@@ -45,9 +45,9 @@ describe("bookmarkLabel", () => {
     expect(bookmarkLabel({ format: "pdf", pageIndex: 0 })).toBe("Page 1");
   });
 
-  it("returns the CFI for an EPUB position", () => {
+  it("returns a clean label for an EPUB position", () => {
     expect(bookmarkLabel({ format: "epub", cfi: "epubcfi(/6/4)" })).toBe(
-      "epubcfi(/6/4)",
+      "EPUB Location",
     );
   });
 });

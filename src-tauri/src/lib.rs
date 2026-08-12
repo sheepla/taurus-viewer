@@ -9,6 +9,7 @@ mod protocol;
 use config::settings::Config;
 use epub::session::EpubSessionManager;
 use library::cache::DbCache;
+use pdf::render_cache::PdfRenderService;
 use pdf::session::PdfSessionManager;
 use specta_typescript::Typescript;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -21,6 +22,7 @@ use tokio::sync::RwLock;
 pub fn run() {
     let pdf_session_manager = Arc::new(RwLock::new(PdfSessionManager::new()));
     let epub_session_manager = Arc::new(RwLock::new(EpubSessionManager::new()));
+    let render_service = PdfRenderService::new(pdf_session_manager.clone());
 
     let config_path = Config::default_path();
     let initial_config = config_path
@@ -59,10 +61,17 @@ pub fn run() {
         .expect("Failed to export specta bindings");
 
     let mut tauri_builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init());
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_log::Builder::default().build());
     tauri_builder = protocol::page::register(tauri_builder);
     tauri_builder = protocol::thumb::register(tauri_builder);
+    tauri_builder = protocol::epub::register(tauri_builder);
 
     let invoke_handler = builder.invoke_handler();
 
@@ -71,6 +80,7 @@ pub fn run() {
         .manage(pdf_session_manager)
         .manage(epub_session_manager)
         .manage(config_state)
+        .manage(render_service)
         .setup(move |app| {
             builder.mount_events(app);
 

@@ -4,16 +4,16 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	/**  Opens a PDF file, creates a render session, and returns basic document metadata. */
+	pdfOpen: (filePath: string) => typedError<PdfMetadata, AppError>(__TAURI_INVOKE("pdf_open", { filePath })),
+	/**  Closes a PDF session and releases resources, including its cache entries. */
+	pdfClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pdf_close", { sessionId })),
+	/**  Returns page dimensions for layout calculation. */
+	pdfGetPageDimensions: (sessionId: string, pageIndex: number) => typedError<PageDimensions, AppError>(__TAURI_INVOKE("pdf_get_page_dimensions", { sessionId, pageIndex })),
 	/**  Returns the document's outline (bookmark tree), if any. */
 	pdfGetOutline: (sessionId: string) => typedError<PdfOutlineNode[], AppError>(__TAURI_INVOKE("pdf_get_outline", { sessionId })),
 	/**  Returns case-insensitive text-search hits across all pages. */
 	pdfSearch: (sessionId: string, query: string) => typedError<PdfSearchHit[], AppError>(__TAURI_INVOKE("pdf_search", { sessionId, query })),
-	/**  Opens a PDF file, creates a render session, and returns basic document metadata. */
-	pdfOpen: (filePath: string) => typedError<PdfMetadata, AppError>(__TAURI_INVOKE("pdf_open", { filePath })),
-	/**  Closes a PDF session and releases resources. */
-	pdfClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pdf_close", { sessionId })),
-	/**  Returns page dimensions for layout calculation. */
-	pdfGetPageDimensions: (sessionId: string, pageIndex: number) => typedError<PageDimensions, AppError>(__TAURI_INVOKE("pdf_get_page_dimensions", { sessionId, pageIndex })),
 	/**  Opens an EPUB file, creates a session, and returns session ID. */
 	epubOpen: (filePath: string) => typedError<EpubMetadata, AppError>(__TAURI_INVOKE("epub_open", { filePath })),
 	/**  Closes an EPUB session and releases resources. */
@@ -29,20 +29,28 @@ export const commands = {
 	/**  Pushes a tab onto the persistent closed-tab stack (pruned to 10 entries). */
 	tabPushClosed: (filePath: string, format: string, viewState: string) => typedError<null, AppError>(__TAURI_INVOKE("tab_push_closed", { filePath, format, viewState })),
 	/**  Pops the most recently closed tab, if any. */
-	tabPopClosed: () => typedError<ClosedTabRecord | null, AppError>(__TAURI_INVOKE("tab_pop_closed")),
+	tabPopClosed: () => typedError<{
+	file_path: string,
+	format: string,
+	view_state: string,
+} | null, AppError>(__TAURI_INVOKE("tab_pop_closed")),
 	/**  Replaces the persisted tab set with the given sessions (startup restore). */
 	tabSaveSessions: (tabs: TabSessionRecord[]) => typedError<null, AppError>(__TAURI_INVOKE("tab_save_sessions", { tabs })),
 	/**  Loads the previously persisted tab sessions. */
 	tabLoadSessions: () => typedError<TabSessionRecord[], AppError>(__TAURI_INVOKE("tab_load_sessions")),
-	/**  Toggles a bookmark for the given page. Returns whether the bookmark now exists (`true` = added, `false` = removed). */
+	/**
+	 *  Toggles a bookmark for the given page. Returns whether the bookmark now
+	 *  exists (`true` = added, `false` = removed).
+	 */
 	bookmarkToggle: (filePath: string, format: string, pagePosition: string) => typedError<boolean, AppError>(__TAURI_INVOKE("bookmark_toggle", { filePath, format, pagePosition })),
 	/**  Lists bookmarks for a document in creation order. */
 	bookmarkList: (filePath: string) => typedError<BookmarkRecord[], AppError>(__TAURI_INVOKE("bookmark_list", { filePath })),
 };
 
 /* Types */
-export type AppError = { kind: "Pdf"; message: string } | { kind: "Epub"; message: string } | { kind: "LibraryScan"; message: string } | { kind: "Database"; message: string } | { kind: "Config"; message: string } | { kind: "Io"; message: string } | { kind: "Protocol"; message: string };
+export type AppError = { kind: "Pdf"; message: string } | { kind: "Epub"; message: string } | { kind: "Database"; message: string } | { kind: "Config"; message: string } | { kind: "Io"; message: string };
 
+/**  A bookmark entry (page-scoped, label-less toggle). */
 export type BookmarkRecord = {
 	id: number,
 	file_path: string,
@@ -51,6 +59,7 @@ export type BookmarkRecord = {
 	created_at: string,
 };
 
+/**  A closed-tab entry popped via `tab_pop_closed`. */
 export type ClosedTabRecord = {
 	file_path: string,
 	format: string,
@@ -107,17 +116,20 @@ export type PdfMetadata = {
 	page_count: number,
 };
 
+/**  A single outline (bookmark) entry in a PDF document. */
 export type PdfOutlineNode = {
 	title: string,
 	page_index: number,
 	children: PdfOutlineNode[],
 };
 
+/**  A single text-search hit within a PDF page. */
 export type PdfSearchHit = {
 	page_index: number,
 	snippet: string,
 };
 
+/**  A persisted tab session loaded via `tab_load_sessions`. */
 export type TabSessionRecord = {
 	position_index: number,
 	file_path: string,

@@ -37,6 +37,5 @@ export function bookmarkLabel(position: PagePosition): string {
   if (position.format === "pdf") {
     return `Page ${position.pageIndex + 1}`;
   }
-  if ("cfi" in position) return position.cfi;
-  return position.href || "EPUB";
+  return "EPUB Location";
 }

@@ -1,36 +1,43 @@
-use crate::pdf::session::PdfSessionManager;
-use std::sync::Arc;
+use crate::pdf::recolor::RenderTheme;
+use crate::pdf::render_cache::PdfRenderService;
 use tauri::Manager;
-use tokio::sync::RwLock;
 
 /// Register the `taurus-page://` custom URI scheme protocol.
 ///
-/// URL format: `taurus-page://<session-id>/<page-index>?w=<width>`
+/// URL format: `taurus-page://<session-id>/<page-index>?w=<width>&theme=<light|dark>&saturation=<0-100>&contrast=<0-100>`
 ///
-/// Returns rendered PNG bytes of the specified PDF page.
+/// This handler is a thin dispatcher: rendering and LRU caching are delegated
+/// to `PdfRenderService` (architecture 2.5.2, detailed design ch. 4).
 pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.register_uri_scheme_protocol("taurus-page", |ctx, request| {
         let uri = request.uri();
         let path = uri.path();
         let query = uri.query().unwrap_or("");
 
-        println!("PDF page request: {} query: {}", path, query);
-
-        let width: u32 = query
+        let params: std::collections::HashMap<&str, &str> = query
             .split('&')
-            .find_map(|p| {
-                let mut kv = p.split('=');
-                if kv.next() == Some("w") {
-                    kv.next()?.parse().ok()
-                } else {
-                    None
-                }
+            .filter_map(|pair| {
+                let mut kv = pair.split('=');
+                Some((kv.next()?, kv.next().unwrap_or("")))
             })
-            .unwrap_or(1000);
+            .collect();
+
+        let width: u32 = params.get("w").and_then(|v| v.parse().ok()).unwrap_or(1000);
+        let saturation: u32 = params
+            .get("saturation")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let contrast: u32 = params
+            .get("contrast")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let theme = match params.get("theme").copied() {
+            Some("dark") => RenderTheme::Dark,
+            _ => RenderTheme::Light,
+        };
 
         let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
         if parts.len() < 2 {
-            println!("Invalid URI format: {}", path);
             return tauri::http::Response::builder()
                 .status(400)
                 .header("Content-Type", "text/plain")
@@ -41,69 +48,39 @@ pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wr
         let session_id = parts[0];
         let page_index: u16 = match parts[1].parse() {
             Ok(idx) => idx,
-            Err(e) => {
-                println!("Invalid page index '{}': {}", parts[1], e);
+            Err(_) => {
                 return tauri::http::Response::builder()
                     .status(400)
                     .header("Content-Type", "text/plain")
                     .body(format!("Invalid page index: {}", parts[1]).into_bytes())
-                    .unwrap();
+                    .unwrap()
             }
         };
 
-        println!(
-            "Rendering PDF session: {}, page: {}, width: {}",
-            session_id, page_index, width
-        );
+        let service = ctx.app_handle().try_state::<PdfRenderService>();
 
-        let session_manager = ctx
-            .app_handle()
-            .try_state::<Arc<RwLock<PdfSessionManager>>>();
-
-        let res = match session_manager {
-            Some(session_manager) => {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    let manager = session_manager.read().await;
-                    if let Some(session) = manager.get_session(session_id) {
-                        session.render_page(page_index, width)
-                    } else {
-                        println!("PDF session not found: {}", session_id);
-                        Err(crate::error::AppError::Pdf("Session not found".into()))
-                    }
-                })
-            }
-            None => {
-                println!("Session manager not found in app state");
-                Err(crate::error::AppError::Pdf(
-                    "Session manager not available".into(),
-                ))
-            }
+        let result = match service {
+            Some(service) => tauri::async_runtime::block_on(
+                service.get_or_render(session_id, page_index, width, theme, saturation, contrast),
+            ),
+            None => Err(crate::error::AppError::Pdf(
+                "Render service not available".into(),
+            )),
         };
 
-        match res {
-            Ok(bytes) => {
-                println!(
-                    "Successfully rendered page {} ({} bytes)",
-                    page_index,
-                    bytes.len()
-                );
-                tauri::http::Response::builder()
-                    .status(200)
-                    .header("Content-Type", "image/png")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Cache-Control", "public, max-age=3600")
-                    .body(bytes)
-                    .unwrap()
-            }
-            Err(err) => {
-                println!("Error rendering page: {}", err);
-                tauri::http::Response::builder()
-                    .status(500)
-                    .header("Content-Type", "text/plain")
-                    .body(format!("Failed to render page: {}", err).into_bytes())
-                    .unwrap()
-            }
+        match result {
+            Ok(bytes) => tauri::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "image/png")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Cache-Control", "public, max-age=3600")
+                .body(bytes)
+                .unwrap(),
+            Err(err) => tauri::http::Response::builder()
+                .status(500)
+                .header("Content-Type", "text/plain")
+                .body(format!("Failed to render page: {}", err).into_bytes())
+                .unwrap(),
         }
     })
 }

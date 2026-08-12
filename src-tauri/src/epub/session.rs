@@ -6,6 +6,9 @@ use std::path::PathBuf;
 pub struct EpubSession {
     // TODO add more metadata properties for general use
     pub id: String,
+    /// The EPUB file path, served as raw bytes via the `taurus-epub://`
+    /// protocol (detailed design 1.5).
+    pub file_path: PathBuf,
 }
 
 impl EpubSession {
@@ -14,7 +17,7 @@ impl EpubSession {
         EpubDoc::new(&file_path)
             .map_err(|e| AppError::Epub(format!("Failed to parse EPUB with epub crate: {}", e)))?;
 
-        Ok(Self { id })
+        Ok(Self { id, file_path })
     }
 }
 
@@ -43,6 +46,10 @@ impl EpubSessionManager {
 
     pub fn close_session(&mut self, id: &str) {
         self.sessions.remove(id);
+    }
+
+    pub fn get_session(&self, id: &str) -> Option<&EpubSession> {
+        self.sessions.get(id)
     }
 }
 

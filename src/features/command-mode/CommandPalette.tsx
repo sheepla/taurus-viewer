@@ -55,6 +55,16 @@ export function CommandPalette() {
     t.filePath.toLowerCase().includes(query.toLowerCase())
   );
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (filteredTabs.length > 0) {
+        handleSelectTab(filteredTabs[0].id);
+      } else if (libraryEntries.length > 0) {
+        handleSelectEntry(libraryEntries[0]);
+      }
+    }
+  }
   function handleSelectTab(tabId: string) {
     activateTab(tabId);
     close();
@@ -81,6 +91,7 @@ export function CommandPalette() {
             placeholder="Search open tabs or library documents..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
             className="font-mono text-sm"
           />
         </div>

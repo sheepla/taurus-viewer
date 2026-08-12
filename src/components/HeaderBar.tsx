@@ -3,11 +3,10 @@ import { Minus, Plus, Settings } from "lucide-react";
 import { useTabStore } from "@/features/tabs/TabStore";
 import { useSettingsModalStore } from "./settingsModalStore";
 import { ThemeToggle } from "./theme-toggle";
-import type { ZoomLevel } from "@/shared/types";
+
 
 function currentZoom(handle: NonNullable<ReturnType<typeof useTabStore.getState>["tabs"][0]["handle"]>): number {
-  const getZoom = (handle as { getZoom?: () => ZoomLevel }).getZoom;
-  return typeof getZoom === "function" ? getZoom() : 1.0;
+  return typeof handle.getZoom === "function" ? handle.getZoom() : 1.0;
 }
 
 export function HeaderBar() {

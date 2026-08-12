@@ -36,8 +36,10 @@ export interface DocumentViewerHandle {
 
   navigate(target: PageTarget | ScrollDelta | PageTurn): void;
   setZoom(level: ZoomLevel): void;
+  getZoom?(): ZoomLevel;
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */
   setViewMode(mode: ViewMode): void;
+  getViewMode?(): ViewMode;
   search(query: string): AsyncIterable<SearchHit>;
   /** Removes any search-result highlights currently shown in the document. */
   clearSearch(): void;

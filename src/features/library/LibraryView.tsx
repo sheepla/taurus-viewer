@@ -6,6 +6,60 @@ import { useNavigate } from "@tanstack/react-router";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import { useTabStore } from "../tabs/TabStore";
 
+function LibraryEntryCard({
+  entry,
+  openTab,
+  navigate,
+}: {
+  entry: LibraryEntry;
+  openTab: (path: string, format: "pdf" | "epub") => void;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        openTab(entry.path, entry.format === "epub" ? "epub" : "pdf");
+        navigate({ to: "/" });
+      }}
+      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-all hover:border-primary hover:shadow-md"
+    >
+      <div className="relative flex aspect-[3/4] w-full items-center justify-center bg-muted/30">
+        {!imgError ? (
+          <img
+            src={`http://taurus-thumb.localhost/${entry.id}`}
+            alt={entry.title}
+            className="h-full w-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <span className="font-semibold text-muted-foreground uppercase text-xs">
+            {entry.format}
+          </span>
+        )}
+        {entry.status === "error" && (
+          <span className="absolute top-1 right-1 rounded bg-destructive px-1.5 py-0.5 text-[10px] font-medium text-destructive-foreground">
+            Error
+          </span>
+        )}
+      </div>
+      <div className="p-2.5">
+        <p
+          className="truncate font-medium text-xs text-foreground group-hover:text-primary"
+          title={entry.title}
+        >
+          {entry.title}
+        </p>
+        <span className="text-[10px] text-muted-foreground uppercase">
+          {entry.format}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export function LibraryView() {
   const queryClient = useQueryClient();
   const [scanning, setScanning] = useState(false);
@@ -101,43 +155,12 @@ export function LibraryView() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {entries.map((entry) => (
-              <button
+              <LibraryEntryCard
                 key={entry.id}
-                type="button"
-                onClick={() => {
-                  openTab(
-                    entry.path,
-                    entry.format === "epub" ? "epub" : "pdf",
-                  );
-                  navigate({ to: "/" });
-                }}
-                className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-all hover:border-primary hover:shadow-md"
-              >
-                <div className="flex aspect-[3/4] w-full items-center justify-center bg-muted/30">
-                  {entry.thumbnail_path ? (
-                      <img
-                        src={`http://taurus-thumb.localhost/${entry.id}`}
-                        alt={entry.title}
-                        className="h-full w-full object-cover"
-                      />
-                  ) : (
-                    <span className="font-semibold text-muted-foreground uppercase text-xs">
-                      {entry.format}
-                    </span>
-                  )}
-                </div>
-                <div className="p-2.5">
-                  <p
-                    className="truncate font-medium text-xs text-foreground group-hover:text-primary"
-                    title={entry.title}
-                  >
-                    {entry.title}
-                  </p>
-                  <span className="text-[10px] text-muted-foreground uppercase">
-                    {entry.format}
-                  </span>
-                </div>
-              </button>
+                entry={entry}
+                openTab={openTab}
+                navigate={navigate}
+              />
             ))}
           </div>
         )}

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { Bookmark, BookmarkPlus, Star, Trash2 } from "lucide-react";
@@ -18,8 +19,8 @@ interface BookmarkRecord {
 
 /**
  * BOOKMARKS-mode sidebar panel: lists the active document's bookmarks and
- * lets the user jump to one or remove it. Toggling the current page is also
- * available from here (`m` uses the same backend toggle).
+ * lets the user jump to one or remove it. Supports j/k/arrow keys, Enter to jump,
+ * and x/Delete to remove bookmarks.
  */
 export function BookmarksPanel() {
   const tabs = useTabStore((s) => s.tabs);
@@ -27,6 +28,7 @@ export function BookmarksPanel() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const handle = activeTab?.handle ?? null;
   const queryClient = useQueryClient();
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const query = useQuery({
     queryKey: ["bookmarks", activeTab?.filePath ?? ""],
@@ -52,6 +54,14 @@ export function BookmarksPanel() {
       queryClient.invalidateQueries({ queryKey: ["bookmarks"] }),
   });
 
+  const records = query.data ?? [];
+
+  useEffect(() => {
+    if (selectedIndex >= records.length && records.length > 0) {
+      setSelectedIndex(records.length - 1);
+    }
+  }, [records.length, selectedIndex]);
+
   if (!activeTab) return null;
 
   const toggleCurrentPage = () => {
@@ -70,10 +80,29 @@ export function BookmarksPanel() {
     if (position) handle.goToPosition(position);
   };
 
-  const records = query.data ?? [];
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (records.length === 0) return;
+    if (e.key === "j" || e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((i) => Math.min(records.length - 1, i + 1));
+    } else if (e.key === "k" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const rec = records[selectedIndex];
+      if (rec) jump(rec.page_position);
+    } else if (e.key === "x" || e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      const rec = records[selectedIndex];
+      if (rec) {
+        toggle.mutate(rec);
+      }
+    }
+  };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col outline-none" tabIndex={0} onKeyDown={handleKeyDown}>
       <button
         type="button"
         onClick={toggleCurrentPage}
@@ -90,14 +119,22 @@ export function BookmarksPanel() {
         </p>
       ) : (
         <ul className="flex-1 overflow-y-auto">
-          {records.map((record) => {
+          {records.map((record, index) => {
             const position = parseBookmarkPosition(record.page_position);
+            const isSelected = index === selectedIndex;
             return (
               <li key={record.id}>
                 <button
                   type="button"
-                  onClick={() => jump(record.page_position)}
-                  className="group flex h-8 w-full items-center gap-2 rounded px-3 text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    setSelectedIndex(index);
+                    jump(record.page_position);
+                  }}
+                  className={`group flex h-8 w-full items-center gap-2 rounded px-3 text-xs transition-colors ${
+                    isSelected
+                      ? "bg-accent text-accent-foreground font-semibold"
+                      : "hover:bg-accent hover:text-accent-foreground"
+                  }`}
                 >
                   <Star size={12} className="shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-left">
