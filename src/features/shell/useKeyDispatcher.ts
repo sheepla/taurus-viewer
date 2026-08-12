@@ -10,6 +10,7 @@ import { useUiModeStore } from "./uiModeStore";
 import { makePagePosition } from "../bookmarks/bookmarks";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type { PageTurn, ViewMode } from "../../shared/types";
+import { useHelpModalStore } from "../../components/HelpModal";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -70,7 +71,7 @@ function toggleBookmark(
  * Global keyboard dispatcher.
  *
  * - Handles document navigation (page turns) and mode transitions
- *   (NORMAL/SEARCH/TREE/BOOKMARKS) for the active document tab.
+ *   (NORMAL/SEARCH/TREE/BOOKMARKS/VISUAL) for the active document tab.
  * - Tab shortcuts (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W, Ctrl+number,
  *   Ctrl+Shift+T) are handled here as well.
  * - Command bar input and the command palette suspend these bindings.
@@ -82,6 +83,7 @@ export function useKeyDispatcher(): void {
   const setMode = useUiModeStore((s) => s.setMode);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const openHelp = useHelpModalStore((s) => s.open);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -104,6 +106,13 @@ export function useKeyDispatcher(): void {
           return;
         }
 
+        if (key === "t" && !e.shiftKey) {
+          e.preventDefault();
+          store.activateTab(null);
+          navigate({ to: "/" });
+          return;
+        }
+
         if (key === "tab") {
           e.preventDefault();
           if (e.shiftKey) {
@@ -123,7 +132,9 @@ export function useKeyDispatcher(): void {
 
         if (/^[1-9]$/.test(key)) {
           e.preventDefault();
-          const index = Number.parseInt(key, 10) - 1;
+          const index = key === "9"
+            ? store.tabs.length - 1
+            : Number.parseInt(key, 10) - 1;
           const tab = store.tabs[index];
           if (tab) {
             store.activateTab(tab.id);
@@ -145,16 +156,54 @@ export function useKeyDispatcher(): void {
         return;
       }
 
-      const handle = getActiveHandle();
+      if (e.key === "?") {
+        e.preventDefault();
+        openHelp();
+        return;
+      }
 
-      // Mode-specific handling: in sidebar modes only Esc is handled here.
-      // Feature-specific keys (search, tree navigation, bookmarks) are owned
-      // by the respective sidebar panels (implemented in later phases).
-      if (currentMode !== "NORMAL") return;
+      if (e.key === "D") {
+        e.preventDefault();
+        window.dispatchEvent(new Event("taurus:toggle-theme"));
+        return;
+      }
+
+      const handle = getActiveHandle();
+      const key = e.key.toLowerCase();
+
+      if (e.key === "~") {
+        e.preventDefault();
+        useTabStore.getState().activateTab(null);
+        navigate({ to: "/" });
+        return;
+      }
+
+      if (currentMode === "VISUAL") {
+        if (key === "y") {
+          e.preventDefault();
+          const selection = window.getSelection()?.toString() ?? "";
+          if (selection) {
+            void navigator.clipboard?.writeText(selection).then(
+              () => toast.success("Selection copied"),
+              () => toast.error("Could not copy selection"),
+            );
+          }
+          setMode("NORMAL");
+        }
+        return;
+      }
+
+      if (currentMode !== "NORMAL") {
+        if (key === "tab") {
+          e.preventDefault();
+          document
+            .querySelector<HTMLElement>("[data-sidebar-panel]")
+            ?.focus();
+        }
+        return;
+      }
 
       if (!handle) return;
-
-      const key = e.key.toLowerCase();
 
       // Mode transitions.
       if (key === "/") {
@@ -179,9 +228,40 @@ export function useKeyDispatcher(): void {
         setMode("BOOKMARKS");
         return;
       }
+      if (key === "v") {
+        e.preventDefault();
+        setMode("VISUAL");
+        return;
+      }
       if (key === "m") {
         e.preventDefault();
         toggleBookmark(queryClient);
+        return;
+      }
+
+      if (key === "j" || key === "arrowdown") {
+        e.preventDefault();
+        handle.navigate({ kind: "scroll", deltaY: 240 });
+        return;
+      }
+      if (key === "k" || key === "arrowup") {
+        e.preventDefault();
+        handle.navigate({ kind: "scroll", deltaY: -240 });
+        return;
+      }
+      if (key === "d") {
+        e.preventDefault();
+        handle.navigate({ kind: "scroll", deltaY: 480 });
+        return;
+      }
+      if (key === "u") {
+        e.preventDefault();
+        handle.navigate({ kind: "scroll", deltaY: -480 });
+        return;
+      }
+      if (key === "f" || key === "b") {
+        e.preventDefault();
+        handle.navigate({ kind: "scroll", deltaY: key === "f" ? 720 : -720 });
         return;
       }
 
@@ -243,5 +323,22 @@ export function useKeyDispatcher(): void {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isCommandBarOpen, isPaletteOpen, currentMode, setMode, navigate]);
+  }, [isCommandBarOpen, isPaletteOpen, currentMode, setMode, navigate, openHelp]);
+
+  useEffect(() => {
+    const handler = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (isCommandBarOpen || isPaletteOpen || isEditableTarget(event.target)) return;
+      const handle = getActiveHandle();
+      if (!handle) return;
+      event.preventDefault();
+      const current = typeof handle.getZoom === "function" ? handle.getZoom() ?? 1 : 1;
+      zoomStep(handle, event.deltaY < 0 ? 1.1 : 0.9);
+      if (typeof handle.getZoom === "function" && handle.getZoom() === current) {
+        toast.info("Zoom is not supported for this document");
+      }
+    };
+    window.addEventListener("wheel", handler, { passive: false });
+    return () => window.removeEventListener("wheel", handler);
+  }, [isCommandBarOpen, isPaletteOpen]);
 }

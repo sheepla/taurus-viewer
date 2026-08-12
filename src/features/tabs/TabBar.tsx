@@ -1,9 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useTabStore } from "./TabStore";
-import { Library, X } from "lucide-react";
+import { Library, Plus, X } from "lucide-react";
 
 export function TabBar() {
-  const { tabs, activeTabId, activateTab, closeTab } = useTabStore();
+  const { tabs, activeTabId, activateTab, closeTab, reorderTabs } = useTabStore();
   const navigate = useNavigate();
 
   function handleLibraryClick() {
@@ -29,7 +29,7 @@ export function TabBar() {
         ].join(" ")}
       >
         <Library size={13} />
-        <span>Library</span>
+        <span>Home</span>
       </button>
 
       {tabs.length > 0 && <div className="h-4 w-px bg-border mx-1" />}
@@ -40,6 +40,17 @@ export function TabBar() {
           role="button"
           tabIndex={0}
           onClick={() => handleTabClick(tab.id)}
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", tab.id);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const sourceId = event.dataTransfer.getData("text/plain");
+            if (sourceId) reorderTabs(sourceId, tab.id);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               handleTabClick(tab.id);
@@ -66,6 +77,19 @@ export function TabBar() {
           </button>
         </div>
       ))}
+
+      <button
+        type="button"
+        aria-label="Open new tab"
+        title="Open new tab"
+        onClick={() => {
+          activateTab(null);
+          navigate({ to: "/" });
+        }}
+        className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+      >
+        <Plus size={14} />
+      </button>
     </div>
   );
 }

@@ -6,8 +6,8 @@ import { useUiModeStore, type UiMode } from "@/features/shell/uiModeStore";
 import { useTabStore } from "@/features/tabs/TabStore";
 
 const TABS: { mode: UiMode; key: string; icon: React.ReactNode; label: string }[] = [
-  { mode: "SEARCH", key: "search", icon: <Search size={13} />, label: "Search" },
   { mode: "TREE", key: "tree", icon: <ListTree size={13} />, label: "Outline" },
+  { mode: "SEARCH", key: "search", icon: <Search size={13} />, label: "Search" },
   {
     mode: "BOOKMARKS",
     key: "bookmarks",

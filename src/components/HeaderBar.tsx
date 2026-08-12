@@ -1,16 +1,29 @@
 import { useState } from "react";
-import { Minus, Plus, Settings } from "lucide-react";
+import type { ReactNode } from "react";
+import { Bookmark, ListTree, Minus, Plus, Search, Settings } from "lucide-react";
+import { useUiModeStore, type UiMode } from "@/features/shell/uiModeStore";
 import { useTabStore } from "@/features/tabs/TabStore";
 import { useSettingsModalStore } from "./settingsModalStore";
 import { ThemeToggle } from "./theme-toggle";
-
 
 function currentZoom(handle: NonNullable<ReturnType<typeof useTabStore.getState>["tabs"][0]["handle"]>): number {
   return typeof handle.getZoom === "function" ? handle.getZoom() : 1.0;
 }
 
+const SIDEBAR_MODES: Array<{
+  mode: Extract<UiMode, "SEARCH" | "TREE" | "BOOKMARKS">;
+  label: string;
+  icon: ReactNode;
+}> = [
+  { mode: "TREE", label: "Outline", icon: <ListTree size={15} /> },
+  { mode: "SEARCH", label: "Search", icon: <Search size={15} /> },
+  { mode: "BOOKMARKS", label: "Bookmarks", icon: <Bookmark size={15} /> },
+];
+
 export function HeaderBar() {
   const openSettings = useSettingsModalStore((s) => s.open);
+  const currentMode = useUiModeStore((s) => s.currentMode);
+  const setMode = useUiModeStore((s) => s.setMode);
   const tabs = useTabStore((s) => s.tabs);
   const activeTabId = useTabStore((s) => s.activeTabId);
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
@@ -34,6 +47,20 @@ export function HeaderBar() {
         {title}
       </span>
       <div className="flex shrink-0 items-center gap-1">
+        {SIDEBAR_MODES.map((item) => (
+          <button
+            key={item.mode}
+            type="button"
+            aria-label={item.label}
+            title={item.label}
+            onClick={() => setMode(currentMode === item.mode ? "NORMAL" : item.mode)}
+            disabled={!handle}
+            data-active={currentMode === item.mode ? "true" : undefined}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
+          >
+            {item.icon}
+          </button>
+        ))}
         <button
           type="button"
           aria-label="Zoom out"

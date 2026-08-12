@@ -4,13 +4,6 @@ import { useTabStore } from "./TabStore";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type { TabViewState } from "../../shared/types";
 
-interface TabSessionRecord {
-  position_index: number;
-  file_path: string;
-  format: "pdf" | "epub";
-  view_state: string;
-}
-
 interface PersistedTab {
   position_index: number;
   file_path: string;
@@ -52,27 +45,7 @@ function serializeTabs(): PersistedTab[] {
  */
 export function useTabPersistence(): void {
   useEffect(() => {
-    let restored = false;
-
-    void (async () => {
-      try {
-        const sessions = await invoke<TabSessionRecord[]>("tab_load_sessions");
-        const openTab = useTabStore.getState().openTab;
-        for (const session of sessions) {
-          let restoreState: TabViewState | null = null;
-          try {
-            restoreState = JSON.parse(session.view_state) as TabViewState;
-          } catch {
-            restoreState = null;
-          }
-          openTab(session.file_path, session.format, restoreState);
-        }
-      } catch (error) {
-        console.error("Failed to restore tab sessions:", error);
-      } finally {
-        restored = true;
-      }
-    })();
+    let restored = true;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = useTabStore.subscribe(() => {

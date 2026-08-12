@@ -25,4 +25,9 @@ describe("useUiModeStore", () => {
     useUiModeStore.getState().setMode("NORMAL");
     expect(useUiModeStore.getState().currentMode).toBe("NORMAL");
   });
+
+  it("switches to VISUAL mode", () => {
+    useUiModeStore.getState().setMode("VISUAL");
+    expect(useUiModeStore.getState().currentMode).toBe("VISUAL");
+  });
 });

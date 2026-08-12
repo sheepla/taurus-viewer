@@ -24,6 +24,7 @@ export function CommandPalette() {
   const { isOpen, close } = useCommandPaletteStore();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const { tabs, activateTab, openTab } = useTabStore();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -31,6 +32,7 @@ export function CommandPalette() {
     if (isOpen) {
       setQuery("");
       setDebouncedQuery("");
+      setSelectedIndex(0);
     }
   }, [isOpen]);
 
@@ -54,14 +56,34 @@ export function CommandPalette() {
     t.title.toLowerCase().includes(query.toLowerCase()) ||
     t.filePath.toLowerCase().includes(query.toLowerCase())
   );
+  const candidates = [
+    ...filteredTabs.map((tab) => ({ kind: "tab" as const, id: tab.id })),
+    ...libraryEntries.map((entry) => ({ kind: "library" as const, id: entry.id })),
+  ];
+
+  useEffect(() => {
+    setSelectedIndex((index) => Math.min(index, Math.max(0, candidates.length - 1)));
+  }, [candidates.length]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || (e.ctrlKey && e.key.toLowerCase() === "n")) {
+      e.preventDefault();
+      setSelectedIndex((index) => (index + 1) % Math.max(1, candidates.length));
+      return;
+    }
+    if (e.key === "ArrowUp" || (e.ctrlKey && e.key.toLowerCase() === "p")) {
+      e.preventDefault();
+      setSelectedIndex((index) => (index - 1 + candidates.length) % Math.max(1, candidates.length));
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
-      if (filteredTabs.length > 0) {
-        handleSelectTab(filteredTabs[0].id);
-      } else if (libraryEntries.length > 0) {
-        handleSelectEntry(libraryEntries[0]);
+      const selected = candidates[selectedIndex];
+      if (selected?.kind === "tab") {
+        handleSelectTab(selected.id);
+      } else if (selected?.kind === "library") {
+        const entry = libraryEntries.find((item) => item.id === selected.id);
+        if (entry) handleSelectEntry(entry);
       }
     }
   }
@@ -107,7 +129,7 @@ export function CommandPalette() {
               role="button"
               tabIndex={0}
               onClick={() => handleSelectTab(tab.id)}
-              className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs"
+              className={`flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs ${selectedIndex === filteredTabs.findIndex((item) => item.id === tab.id) ? "bg-accent" : ""}`}
             >
               <FileText size={14} className="text-primary shrink-0" />
               <div className="flex flex-col truncate">
@@ -129,7 +151,7 @@ export function CommandPalette() {
               role="button"
               tabIndex={0}
               onClick={() => handleSelectEntry(entry)}
-              className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs"
+              className={`flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs ${selectedIndex === filteredTabs.length + libraryEntries.findIndex((item) => item.id === entry.id) ? "bg-accent" : ""}`}
             >
               <BookOpen size={14} className="text-muted-foreground shrink-0" />
               <div className="flex flex-col truncate">

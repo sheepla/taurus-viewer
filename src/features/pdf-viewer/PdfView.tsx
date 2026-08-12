@@ -1,13 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
 import type { Config } from "../../shared/bindings";
+import { useSearchState } from "../search/searchState";
 
 interface PdfViewProps {
   tabId: string;
   filePath: string;
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lowerText = text.toLocaleLowerCase();
+  const lowerQuery = query.toLocaleLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let match = lowerText.indexOf(lowerQuery, cursor);
+  while (match >= 0) {
+    if (match > cursor) parts.push(text.slice(cursor, match));
+    parts.push(
+      <mark key={`${match}-${query}`} className="bg-yellow-300/80 text-foreground">
+        {text.slice(match, match + query.length)}
+      </mark>,
+    );
+    cursor = match + query.length;
+    match = lowerText.indexOf(lowerQuery, cursor);
+  }
+  if (cursor === 0) return <>{text}</>;
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
 }
 
 function PageItem({
@@ -16,15 +40,31 @@ function PageItem({
   pageCount,
   invertColors,
   pageIndex,
+  searchQuery,
+  zoom,
 }: {
   sessionId: string;
   index: number;
   pageCount: number;
   invertColors: boolean;
   pageIndex: number;
+  searchQuery: string;
+  zoom: number;
 }) {
   const [isVisible, setIsVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const textLayerQuery = useQuery({
+    queryKey: ["pdf-text-layer", sessionId, pageIndex],
+    queryFn: () => invoke<Array<{ text: string; x: number; y: number; width: number; height: number }>>("pdf_get_text_layer", { sessionId, pageIndex }),
+    enabled: isVisible,
+    staleTime: Infinity,
+  });
+  const dimensionsQuery = useQuery({
+    queryKey: ["pdf-page-dimensions", sessionId, pageIndex],
+    queryFn: () => invoke<{ width: number; height: number }>("pdf_get_page_dimensions", { sessionId, pageIndex }),
+    enabled: isVisible,
+    staleTime: Infinity,
+  });
 
   useEffect(() => {
     const el = ref.current;
@@ -50,12 +90,16 @@ function PageItem({
       className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border min-h-[500px] w-full justify-center"
     >
       {isVisible ? (
-        <img
-          src={`http://taurus-page.localhost/${sessionId}/${index}?w=1200`}
-          alt={`Page ${index + 1}`}
-          className="max-w-full h-auto object-contain"
-          style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
-          onError={(e) => {
+        <div
+          className="relative max-w-full"
+          style={{ width: `${Math.max(100, zoom * 100)}%` }}
+        >
+          <img
+            src={`http://taurus-page.localhost/${sessionId}/${index}?w=${Math.round(1200 * zoom)}`}
+            alt={`Page ${index + 1}`}
+            className="block h-auto w-full object-contain"
+            style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
+            onError={(e) => {
             console.error(`Failed to load page ${index + 1}:`, e);
             (e.target as HTMLImageElement).src =
               "data:image/svg+xml," +
@@ -67,8 +111,29 @@ function PageItem({
                   </text>
                 </svg>
               `);
-          }}
-        />
+            }}
+          />
+          <div className="pointer-events-none absolute inset-0 select-text" aria-label={`Text layer for page ${index + 1}`}>
+            {textLayerQuery.data?.map((run, runIndex) => {
+              const dimensions = dimensionsQuery.data;
+              if (!dimensions) return null;
+              return (
+              <span
+                key={runIndex}
+                className={`pointer-events-auto absolute selection:bg-yellow-300/50 ${searchQuery && run.text.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()) ? "bg-yellow-300/70 text-foreground" : "text-transparent"}`}
+                style={{
+                  left: `${(run.x / dimensions.width) * 100}%`,
+                  bottom: `${(run.y / dimensions.height) * 100}%`,
+                  width: `${(run.width / dimensions.width) * 100}%`,
+                  height: `${(run.height / dimensions.height) * 100}%`,
+                }}
+              >
+                <HighlightedText text={run.text} query={searchQuery} />
+              </span>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div className="text-muted-foreground text-xs animate-pulse">
           Loading page {index + 1}...
@@ -82,6 +147,7 @@ function PageItem({
 }
 
 export function PdfView({ tabId, filePath }: PdfViewProps) {
+  const searchQuery = useSearchState((state) => state.query);
   const setTabHandle = useTabStore((s) => s.setHandle);
   const setTabRestored = useTabStore((s) => s.setTabRestored);
   const restoreState = useTabStore(
@@ -111,6 +177,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   });
 
   const handle = viewerQuery.data ?? null;
+  const zoom = handle?.getZoom?.() ?? 1;
 
   useEffect(() => {
     if (!handle) return;
@@ -162,7 +229,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   if (!sessionId) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-destructive text-sm">
-        <div className="font-medium">No PDF session available</div>
+        <div className="font-medium text-muted-foreground">Loading PDF session...</div>
       </div>
     );
   }
@@ -189,6 +256,8 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
             index={index}
             pageCount={pageCount}
             invertColors={invertColors}
+            searchQuery={searchQuery}
+            zoom={zoom}
           />
         ))}
       </div>

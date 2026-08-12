@@ -73,7 +73,10 @@ async fn scan_folder_async(
     db_cache: &DbCache,
     folder_path: PathBuf,
 ) -> Result<(), AppError> {
-    log::info!("Starting background scan for folder: {}", folder_path.display());
+    log::info!(
+        "Starting background scan for folder: {}",
+        folder_path.display()
+    );
     let scanned = scanner::scan_directory(&folder_path)?;
     let folder_id = db_cache.add_folder(&folder_path).await?;
     let total = scanned.len() as u32;

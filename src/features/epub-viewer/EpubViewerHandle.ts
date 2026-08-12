@@ -33,6 +33,49 @@ interface EpubTocEntry {
   subitems?: EpubTocEntry[];
 }
 
+type FoliateRenderer = HTMLElement & {
+  getContents?: () => Array<{ doc?: Document }>;
+  scrollBy?: (dx: number, dy: number) => void;
+  setStyles?: (styles: string | [string, string]) => void;
+};
+
+type FoliateView = View & {
+  renderer?: FoliateRenderer;
+};
+
+const FORWARDED_KEY_ATTRIBUTE = "data-taurus-key-forwarding";
+const APP_KEYS = new Set([
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "PageDown",
+  "PageUp",
+  " ",
+  "+",
+  "-",
+  "=",
+  "/",
+  "?",
+  "B",
+  "D",
+  "N",
+  "Tab",
+  "b",
+  "d",
+  "f",
+  "h",
+  "j",
+  "k",
+  "l",
+  "m",
+  "n",
+  "t",
+  "u",
+  "v",
+  "~",
+]);
+
 export class EpubViewerHandle implements DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities = {
     viewModes: ["pages"],
@@ -41,18 +84,24 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   };
 
   private sessionId: string | null = null;
-  private view: View;
+  private view: FoliateView;
+  private zoomLevel = 1.0;
   private readyListeners: Set<() => void> = new Set();
   private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
 
   constructor(private filePath: string) {
-    this.view = document.createElement("foliate-view") as View;
+    this.view = document.createElement("foliate-view") as FoliateView;
     this.view.style.width = "100%";
     this.view.style.height = "100%";
     this.view.style.display = "block";
     this.view.style.flex = "1";
     this.view.style.minHeight = "0";
     this.view.addEventListener("relocate", () => this.onRelocate());
+    this.view.addEventListener("load", (event) => {
+      const detail = (event as CustomEvent<{ doc?: Document }>).detail;
+      if (detail?.doc) this.forwardContentKeys(detail.doc);
+      this.applyReaderStyles();
+    });
   }
 
   getViewElement(): View {
@@ -68,6 +117,8 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
       await this.view.open(file);
       await this.view.init({ showTextStart: true });
+      this.applyReaderStyles();
+      this.bindLoadedContent();
 
       for (const cb of this.readyListeners) {
         cb();
@@ -84,6 +135,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
         this.view.goTo({ fraction: target.index }).catch(console.error);
         break;
       case "scroll":
+        this.view.renderer?.scrollBy?.(0, target.deltaY);
         break;
       case "prev":
         this.view.prev().catch(console.error);
@@ -100,7 +152,15 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     }
   }
 
-  setZoom(_level: ZoomLevel): void {}
+  setZoom(level: ZoomLevel): void {
+    this.zoomLevel = Math.max(0.6, Math.min(level, 2.5));
+    this.applyReaderStyles();
+  }
+
+  getZoom(): ZoomLevel {
+    return this.zoomLevel;
+  }
+
   setViewMode(_mode: ViewMode): void {}
 
   async *search(query: string): AsyncIterable<SearchHit> {
@@ -153,9 +213,9 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     if (position.format !== "epub") return;
     const target =
       "cfi" in position
-        ? { cfi: position.cfi }
+        ? position.cfi
         : position.href
-          ? { href: position.href }
+          ? position.href
           : undefined;
     if (target) this.view.goTo(target).catch(console.error);
   }
@@ -176,6 +236,51 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     for (const listener of this.positionListeners) {
       listener(pos);
     }
+  }
+
+  private applyReaderStyles(): void {
+    const fontSize = `${Math.round(this.zoomLevel * 100)}%`;
+    this.view.renderer?.setStyles?.(`
+      html {
+        font-size: ${fontSize} !important;
+      }
+      body {
+        line-height: 1.65 !important;
+      }
+    `);
+  }
+
+  private bindLoadedContent(): void {
+    for (const content of this.view.renderer?.getContents?.() ?? []) {
+      if (content.doc) this.forwardContentKeys(content.doc);
+    }
+  }
+
+  private forwardContentKeys(doc: Document): void {
+    const root = doc.documentElement;
+    if (root.getAttribute(FORWARDED_KEY_ATTRIBUTE) === "true") return;
+    root.setAttribute(FORWARDED_KEY_ATTRIBUTE, "true");
+    doc.addEventListener(
+      "keydown",
+      (event) => {
+        if (!APP_KEYS.has(event.key) && !event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: event.key,
+            code: event.code,
+            altKey: event.altKey,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            shiftKey: event.shiftKey,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      true,
+    );
   }
 
   dispose(): void {

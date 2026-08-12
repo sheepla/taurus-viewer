@@ -4,6 +4,7 @@ import { DocumentSidebar } from "@/components/DocumentSidebar";
 import { HeaderBar } from "@/components/HeaderBar";
 import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { SettingsModal } from "@/components/SettingsModal";
+import { HelpModal } from "@/components/HelpModal";
 import { useSettingsModalStore } from "@/components/settingsModalStore";
 import { Toaster } from "@/components/ui/sonner";
 import { CommandBar } from "@/features/command-mode/CommandBar";
@@ -65,6 +66,7 @@ function RootLayout() {
         </div>
         <StatusBar />
         <SettingsModal />
+        <HelpModal />
         <CommandPalette />
         <Toaster richColors position="top-right" />
       </div>

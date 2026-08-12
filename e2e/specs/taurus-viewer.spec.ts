@@ -81,9 +81,9 @@ describe("TaurusViewer E2E Test Suite", () => {
     await expect(heading).toBeDisplayed();
   });
 
-  it("should show Library tab icon in tab bar", async () => {
-    const libraryTab = await $("span=Library");
-    await expect(libraryTab).toBeDisplayed();
+  it("should show Home tab icon in tab bar", async () => {
+    const homeTab = await $("span=Home");
+    await expect(homeTab).toBeDisplayed();
   });
 
   it("should open settings modal via settings button", async () => {

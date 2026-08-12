@@ -87,11 +87,25 @@ export class PdfViewerHandle implements DocumentViewerHandle {
         break;
       case "prev":
       case "left":
-        this.scrollToPage(this.currentPage - 1);
+        if (this.zoomLevel > 1.01 && this.scrollContainer) {
+          this.scrollContainer.scrollBy({
+            left: -Math.max(240, this.scrollContainer.clientWidth * 0.75),
+            behavior: "auto",
+          });
+        } else {
+          this.scrollToPage(this.currentPage - 1);
+        }
         break;
       case "next":
       case "right":
-        this.scrollToPage(this.currentPage + 1);
+        if (this.zoomLevel > 1.01 && this.scrollContainer) {
+          this.scrollContainer.scrollBy({
+            left: Math.max(240, this.scrollContainer.clientWidth * 0.75),
+            behavior: "auto",
+          });
+        } else {
+          this.scrollToPage(this.currentPage + 1);
+        }
         break;
     }
   }

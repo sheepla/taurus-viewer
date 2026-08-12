@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { Bookmark, BookmarkPlus, Star, Trash2 } from "lucide-react";
@@ -23,6 +23,7 @@ interface BookmarkRecord {
  * and x/Delete to remove bookmarks.
  */
 export function BookmarksPanel() {
+  const panelRef = useRef<HTMLDivElement>(null);
   const tabs = useTabStore((s) => s.tabs);
   const activeTabId = useTabStore((s) => s.activeTabId);
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
@@ -55,6 +56,10 @@ export function BookmarksPanel() {
   });
 
   const records = query.data ?? [];
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [activeTab?.filePath]);
 
   useEffect(() => {
     if (selectedIndex >= records.length && records.length > 0) {
@@ -102,7 +107,13 @@ export function BookmarksPanel() {
   };
 
   return (
-    <div className="flex h-full flex-col outline-none" tabIndex={0} onKeyDown={handleKeyDown}>
+    <div
+      ref={panelRef}
+      data-sidebar-panel
+      className="flex h-full flex-col outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <button
         type="button"
         onClick={toggleCurrentPage}

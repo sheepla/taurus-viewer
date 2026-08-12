@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::pdf::outline::PdfOutlineNode;
 use crate::pdf::render_cache::PdfRenderService;
-use crate::pdf::search::PdfSearchHit;
+use crate::pdf::search::{PdfSearchHit, PdfTextRun};
 use crate::pdf::session::PdfSessionManager;
 use specta::Type;
 use std::path::PathBuf;
@@ -121,4 +121,18 @@ pub async fn pdf_search(
         .ok_or_else(|| AppError::Pdf("Session not found".into()))?;
 
     session.search_text(&query)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pdf_get_text_layer(
+    session_id: String,
+    page_index: u16,
+    session_manager: State<'_, Arc<RwLock<PdfSessionManager>>>,
+) -> Result<Vec<PdfTextRun>, AppError> {
+    let manager = session_manager.read().await;
+    let session = manager
+        .get_session(&session_id)
+        .ok_or_else(|| AppError::Pdf("Session not found".into()))?;
+    session.get_text_layer(page_index)
 }

@@ -2,6 +2,15 @@ use regex::RegexBuilder;
 use serde::Serialize;
 use specta::Type;
 
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct PdfTextRun {
+    pub text: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 /// A single text-search hit within a PDF page.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct PdfSearchHit {

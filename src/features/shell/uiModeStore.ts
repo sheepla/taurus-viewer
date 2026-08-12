@@ -1,6 +1,12 @@
 import { create } from "zustand";
 
-export type UiMode = "NORMAL" | "SEARCH" | "COMMAND" | "TREE" | "BOOKMARKS";
+export type UiMode =
+  | "NORMAL"
+  | "SEARCH"
+  | "COMMAND"
+  | "TREE"
+  | "BOOKMARKS"
+  | "VISUAL";
 
 interface UiModeState {
   currentMode: UiMode;

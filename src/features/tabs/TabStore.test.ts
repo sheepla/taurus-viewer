@@ -102,6 +102,21 @@ describe("TabStore", () => {
     expect(activeTabId).toBe(firstTabId);
   });
 
+  it("reorders tabs while preserving the active tab", () => {
+    const store = useTabStore.getState();
+    store.openTab("/first.pdf", "pdf");
+    store.openTab("/second.pdf", "pdf");
+    const [first, second] = useTabStore.getState().tabs;
+
+    useTabStore.getState().reorderTabs(second!.id, first!.id);
+
+    expect(useTabStore.getState().tabs.map((tab) => tab.filePath)).toEqual([
+      "/second.pdf",
+      "/first.pdf",
+    ]);
+    expect(useTabStore.getState().activeTabId).toBe(second!.id);
+  });
+
   it("pushes the closed tab onto the persistent stack on close", () => {
     const store = useTabStore.getState();
     store.openTab("/doc1.pdf", "pdf");
@@ -147,5 +162,13 @@ describe("TabStore", () => {
     await useTabStore.getState().restoreLastClosedTab();
 
     expect(toastInfoMock).toHaveBeenCalledWith("No closed tab to restore");
+  });
+
+  it("does not duplicate persisted tabs when tabs are already open", async () => {
+    useTabStore.getState().openTab("/already-open.pdf", "pdf");
+    await useTabStore.getState().restorePersistedTabs();
+
+    expect(invokeMock).not.toHaveBeenCalledWith("tab_load_sessions");
+    expect(toastInfoMock).toHaveBeenCalledWith("Close open tabs before restoring saved tabs");
   });
 });

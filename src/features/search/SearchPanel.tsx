@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CornerDownLeft, Loader2, Search, X } from "lucide-react";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type { SearchHit } from "../../shared/types";
+import { useSearchState } from "./searchState";
 
 /** Renders a snippet with every (case-insensitive) query occurrence marked. */
 function MarkedSnippet({ text, query }: { text: string; query: string }) {
@@ -22,6 +23,20 @@ function MarkedSnippet({ text, query }: { text: string; query: string }) {
   );
 }
 
+function normalizeSnippet(snippet: unknown): string {
+  if (typeof snippet === "string") return snippet;
+  if (snippet && typeof snippet === "object") {
+    const value = snippet as Record<string, unknown>;
+    const candidates = [value.snippet, value.text, value.label, value.title, value.content];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate;
+      }
+    }
+  }
+  return String(snippet ?? "");
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -32,20 +47,29 @@ function escapeRegExp(value: string): string {
  * document are cleared when the query is reset.
  */
 export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null }) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searched, setSearched] = useState(false);
   const [searching, setSearching] = useState(false);
+  const setSearchQuery = useSearchState((state) => state.setQuery);
+  const [activeIndex, setActiveIndex] = useState(0);
   const runIdRef = useRef(0);
+
+  useEffect(() => {
+    panelRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search in document"]')?.focus();
+  }, []);
 
   const runSearch = async (term: string) => {
     if (!handle || !term.trim()) return;
     const runId = ++runIdRef.current;
     handle.clearSearch();
+    setSearchQuery(term.trim());
     setQuery(term);
     setSearched(true);
     setSearching(true);
     setHits([]);
+    setActiveIndex(0);
     const collected: SearchHit[] = [];
     try {
       for await (const hit of handle.search(term)) {
@@ -65,8 +89,10 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
   const reset = () => {
     runIdRef.current += 1;
     handle?.clearSearch();
+    setSearchQuery("");
     setQuery("");
     setHits([]);
+    setActiveIndex(0);
     setSearched(false);
     setSearching(false);
   };
@@ -74,7 +100,7 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
   if (!handle) return null;
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={panelRef} data-sidebar-panel className="flex h-full flex-col" tabIndex={-1}>
       <form
         className="flex items-center gap-1.5 border-b border-border p-2"
         onSubmit={(e) => {
@@ -89,6 +115,19 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
           placeholder="Search in document..."
           aria-label="Search in document"
           className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+          onKeyDown={(event) => {
+            if (!hits.length) return;
+            if (event.key === "F3" && event.shiftKey) {
+              event.preventDefault();
+              setActiveIndex((index) => (index - 1 + hits.length) % hits.length);
+            } else if (event.key === "n" || event.key === "F3") {
+              event.preventDefault();
+              setActiveIndex((index) => (index + 1) % hits.length);
+            } else if (event.key === "N") {
+              event.preventDefault();
+              setActiveIndex((index) => (index - 1 + hits.length) % hits.length);
+            }
+          }}
         />
         <button
           type="submit"
@@ -132,10 +171,15 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
               <li key={index}>
                 <button
                   type="button"
-                  onClick={() => handle.goToPosition(hit.destination)}
-                  className="w-full rounded px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    setActiveIndex(index);
+                    handle.goToPosition(hit.destination);
+                  }}
+                  data-active={index === activeIndex ? "true" : undefined}
+                  aria-current={index === activeIndex ? "true" : undefined}
+                  className={`w-full rounded px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground ${index === activeIndex ? "bg-accent" : ""}`}
                 >
-                  <MarkedSnippet text={hit.snippet} query={query} />
+                  <MarkedSnippet text={normalizeSnippet(hit.snippet)} query={query} />
                   {hit.destination.format === "pdf" && (
                     <span className="mt-0.5 block text-[11px] text-muted-foreground">
                       Page {hit.destination.pageIndex + 1}

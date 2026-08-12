@@ -39,9 +39,10 @@ export function executeCommand(cmd: ParsedCommand): void {
       });
       break;
 
+    case 'home':
     case 'library':
       store.activateTab(null);
-      toast.info('Switched to Library');
+      toast.info('Switched to Home');
       break;
 
     case 'settings':

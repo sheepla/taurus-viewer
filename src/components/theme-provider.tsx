@@ -48,6 +48,14 @@ export function ThemeProvider({
     root.classList.add(theme)
   }, [theme])
 
+  useEffect(() => {
+    const toggle = () => {
+      setTheme(theme === "dark" ? "light" : "dark")
+    }
+    window.addEventListener("taurus:toggle-theme", toggle)
+    return () => window.removeEventListener("taurus:toggle-theme", toggle)
+  }, [theme])
+
   const value = {
     theme,
     setTheme: (theme: Theme) => {

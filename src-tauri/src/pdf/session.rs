@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::pdf::outline::{collect_outline, PdfOutlineNode};
 use crate::pdf::recolor::{apply_recolor, RenderTheme};
-use crate::pdf::search::{find_matches, PdfSearchHit};
+use crate::pdf::search::{find_matches, PdfSearchHit, PdfTextRun};
 use pdfium_render::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -208,6 +208,36 @@ impl PdfSession {
         Ok(hits)
     }
 
+    pub fn get_text_layer(&self, page_index: u16) -> Result<Vec<PdfTextRun>, AppError> {
+        let pdfium = self.create_session_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_file(&self.file_path, None)
+            .map_err(|e| AppError::Pdf(e.to_string()))?;
+        let page = document
+            .pages()
+            .get(page_index)
+            .map_err(|e| AppError::Pdf(e.to_string()))?;
+        let text = page.text().map_err(|e| AppError::Pdf(e.to_string()))?;
+        Ok(text
+            .segments()
+            .iter()
+            .filter_map(|segment| {
+                let bounds = segment.bounds();
+                let value = segment.text();
+                if value.trim().is_empty() {
+                    return None;
+                }
+                Some(PdfTextRun {
+                    text: value,
+                    x: bounds.left().value as f64,
+                    y: bounds.bottom().value as f64,
+                    width: bounds.width().value as f64,
+                    height: bounds.height().value as f64,
+                })
+            })
+            .collect())
+    }
+
     pub fn render_page_recolored(
         &self,
         page_index: u16,
@@ -317,5 +347,13 @@ mod tests {
 
         let missing = test_session().search_text("wisdom").expect("search text");
         assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn extracts_positioned_text_runs_from_sample() {
+        let runs = test_session().get_text_layer(0).expect("get text layer");
+        assert!(!runs.is_empty());
+        assert!(runs.iter().all(|run| !run.text.trim().is_empty()));
+        assert!(runs.iter().all(|run| run.width > 0.0 && run.height > 0.0));
     }
 }

@@ -14,6 +14,7 @@ export const commands = {
 	pdfGetOutline: (sessionId: string) => typedError<PdfOutlineNode[], AppError>(__TAURI_INVOKE("pdf_get_outline", { sessionId })),
 	/**  Returns case-insensitive text-search hits across all pages. */
 	pdfSearch: (sessionId: string, query: string) => typedError<PdfSearchHit[], AppError>(__TAURI_INVOKE("pdf_search", { sessionId, query })),
+	pdfGetTextLayer: (sessionId: string, pageIndex: number) => typedError<PdfTextRun[], AppError>(__TAURI_INVOKE("pdf_get_text_layer", { sessionId, pageIndex })),
 	/**  Opens an EPUB file, creates a session, and returns session ID. */
 	epubOpen: (filePath: string) => typedError<EpubMetadata, AppError>(__TAURI_INVOKE("epub_open", { filePath })),
 	/**  Closes an EPUB session and releases resources. */
@@ -127,6 +128,14 @@ export type PdfOutlineNode = {
 export type PdfSearchHit = {
 	page_index: number,
 	snippet: string,
+};
+
+export type PdfTextRun = {
+	text: string,
+	x: number | null,
+	y: number | null,
+	width: number | null,
+	height: number | null,
 };
 
 /**  A persisted tab session loaded via `tab_load_sessions`. */

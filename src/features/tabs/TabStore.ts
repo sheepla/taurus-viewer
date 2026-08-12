@@ -25,6 +25,12 @@ interface ClosedTabRecord {
   view_state: string;
 }
 
+interface TabSessionRecord {
+  file_path: string;
+  format: DocumentFormat;
+  view_state: string;
+}
+
 interface TabState {
   tabs: Tab[];
   activeTabId: string | null;
@@ -37,11 +43,13 @@ interface TabState {
   activateTab: (id: string | null) => void;
   activateNext: () => void;
   activatePrev: () => void;
+  reorderTabs: (sourceId: string, targetId: string) => void;
   setHandle: (id: string, handle: DocumentViewerHandle) => void;
   /** Clears the pending restore state after the viewer applied it. */
   setTabRestored: (id: string) => void;
   /** Pops the most recently closed tab from the persistent stack and reopens it. */
   restoreLastClosedTab: () => Promise<void>;
+  restorePersistedTabs: () => Promise<void>;
 }
 
 let tabCounter = 0;
@@ -136,6 +144,20 @@ export const useTabStore = create<TabState>((set, get) => ({
     if (prev) set({ activeTabId: prev.id });
   },
 
+  reorderTabs(sourceId, targetId) {
+    if (sourceId === targetId) return;
+    set((state) => {
+      const sourceIndex = state.tabs.findIndex((tab) => tab.id === sourceId);
+      const targetIndex = state.tabs.findIndex((tab) => tab.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return state;
+      const tabs = [...state.tabs];
+      const [source] = tabs.splice(sourceIndex, 1);
+      if (!source) return state;
+      tabs.splice(targetIndex, 0, source);
+      return { tabs };
+    });
+  },
+
   setHandle(id, handle) {
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, handle } : t)),
@@ -168,6 +190,28 @@ export const useTabStore = create<TabState>((set, get) => ({
       );
     } catch (error) {
       console.error("Failed to restore closed tab:", error);
+    }
+  },
+
+  async restorePersistedTabs() {
+    if (get().tabs.length > 0) {
+      toast.info("Close open tabs before restoring saved tabs");
+      return;
+    }
+    try {
+      const sessions = await invoke<TabSessionRecord[]>("tab_load_sessions");
+      const openTab = get().openTab;
+      for (const session of sessions) {
+        let restoreState: TabViewState | null = null;
+        try {
+          restoreState = JSON.parse(session.view_state) as TabViewState;
+        } catch {
+          restoreState = null;
+        }
+        openTab(session.file_path, session.format, restoreState);
+      }
+    } catch (error) {
+      console.error("Failed to restore tab sessions:", error);
     }
   },
 }));

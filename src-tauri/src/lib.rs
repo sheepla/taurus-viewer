@@ -37,6 +37,7 @@ pub fn run() {
         commands::pdf::pdf_get_page_dimensions,
         commands::pdf::pdf_get_outline,
         commands::pdf::pdf_search,
+        commands::pdf::pdf_get_text_layer,
         commands::epub::epub_open,
         commands::epub::epub_close,
         commands::library::library_add_folder,

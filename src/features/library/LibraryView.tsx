@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, RefreshCw } from "lucide-react";
+import { FolderPlus, RefreshCw, RotateCcw } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import { useTabStore } from "../tabs/TabStore";
@@ -64,6 +64,7 @@ export function LibraryView() {
   const queryClient = useQueryClient();
   const [scanning, setScanning] = useState(false);
   const openTab = useTabStore((s) => s.openTab);
+  const restorePersistedTabs = useTabStore((s) => s.restorePersistedTabs);
   const navigate = useNavigate();
 
   const foldersQuery = useQuery({
@@ -120,6 +121,14 @@ export function LibraryView() {
       <div className="flex h-12 items-center justify-between border-b px-4">
         <h2 className="font-semibold text-lg">Document Library</h2>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void restorePersistedTabs()}
+            className="flex items-center gap-1.5 rounded border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <RotateCcw size={14} />
+            Restore Tabs
+          </button>
           <button
             type="button"
             onClick={handleRefresh}
