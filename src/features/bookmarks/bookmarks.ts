@@ -1,4 +1,4 @@
-import type { DocumentPosition, PagePosition } from "../../shared/types";
+import type { DocumentPosition, OutlineNode, PagePosition } from "../../shared/types";
 
 /**
  * Normalizes a full reading position into a stable, page-scoped bookmark key.
@@ -32,10 +32,32 @@ export function parseBookmarkPosition(raw: string): PagePosition | null {
   }
 }
 
+function flattenOutlineNodes(nodes: readonly OutlineNode[]): Array<{ title: string; position: any }> {
+  return nodes.flatMap((node) => [
+    { title: node.title, position: node.destination },
+    ...flattenOutlineNodes(node.children),
+  ]);
+}
+
 /** Human-readable label for a bookmark in the sidebar list. */
-export function bookmarkLabel(position: PagePosition): string {
+export function bookmarkLabel(position: PagePosition, outlineNodes: OutlineNode[] = []): string {
+  const flat = flattenOutlineNodes(outlineNodes);
   if (position.format === "pdf") {
-    return `Page ${position.pageIndex + 1}`;
+    const pageNum = position.pageIndex + 1;
+    let bestTitle: string | null = null;
+    for (const item of flat) {
+      if (item.position && typeof item.position === "object" && "pageIndex" in item.position) {
+        if ((item.position as any).pageIndex <= position.pageIndex) {
+          bestTitle = item.title;
+        }
+      }
+    }
+    return bestTitle ? `Page ${pageNum}: ${bestTitle}` : `Page ${pageNum}`;
+  } else {
+    let bestTitle: string | null = null;
+    for (const item of flat) {
+      bestTitle = item.title;
+    }
+    return bestTitle ? `EPUB: ${bestTitle}` : "EPUB Location";
   }
-  return "EPUB Location";
 }

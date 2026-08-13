@@ -47,6 +47,15 @@ function toggleViewMode(handle: DocumentViewerHandle): void {
   }
 }
 
+function toggleColumns(handle: DocumentViewerHandle): void {
+  const current = typeof handle.getColumns === "function" ? handle.getColumns() ?? 1 : 1;
+  const next = current === 1 ? 2 : 1;
+  if (typeof handle.setColumns === "function") {
+    handle.setColumns(next);
+    toast.info(`Columns: ${next}`);
+  }
+}
+
 function toggleBookmark(
   queryClient: ReturnType<typeof useQueryClient>,
 ): void {
@@ -194,13 +203,14 @@ export function useKeyDispatcher(): void {
       }
 
       if (currentMode !== "NORMAL") {
-        if (key === "tab") {
-          e.preventDefault();
-          document
-            .querySelector<HTMLElement>("[data-sidebar-panel]")
-            ?.focus();
+        const sidebarPanel = document.querySelector("[data-sidebar-panel]");
+        if (sidebarPanel?.contains(e.target as Node) || sidebarPanel?.contains(document.activeElement)) {
+          if (key === "tab") {
+            e.preventDefault();
+            (sidebarPanel as HTMLElement).focus();
+          }
+          return;
         }
-        return;
       }
 
       if (!handle) return;
@@ -271,6 +281,11 @@ export function useKeyDispatcher(): void {
         toggleViewMode(handle);
         return;
       }
+      if (key === "c") {
+        e.preventDefault();
+        toggleColumns(handle);
+        return;
+      }
       if (e.key === "=") {
         e.preventDefault();
         handle.setZoom(1.0);
@@ -278,12 +293,12 @@ export function useKeyDispatcher(): void {
       }
       if (e.key === "+") {
         e.preventDefault();
-        zoomStep(handle, 1.25);
+        zoomStep(handle, 1.1);
         return;
       }
       if (e.key === "-") {
         e.preventDefault();
-        zoomStep(handle, 0.8);
+        zoomStep(handle, 0.9);
         return;
       }
 

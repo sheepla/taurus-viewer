@@ -9,7 +9,7 @@ function MarkedSnippet({ text, query }: { text: string; query: string }) {
   const safeText = typeof text === "string" ? text : String(text ?? "");
   const parts = safeText.split(new RegExp(`(${escapeRegExp(query)})`, "gi"));
   return (
-    <span className="whitespace-pre-wrap break-words">
+    <span className="whitespace-pre-wrap wrap-break-words">
       {parts.map((part, index) =>
         part.toLowerCase() === query.toLowerCase() ? (
           <mark key={index} className="rounded-sm bg-yellow-300/70 px-0.5 text-foreground">
@@ -97,10 +97,49 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
     setSearching(false);
   };
 
+  const jumpToHit = (index: number) => {
+    if (!handle) return;
+    setActiveIndex(index);
+    const hit = hits[index];
+    if (hit) {
+      handle.goToPosition(hit.destination);
+    }
+  };
+
   if (!handle) return null;
 
   return (
-    <div ref={panelRef} data-sidebar-panel className="flex h-full flex-col" tabIndex={-1}>
+    <div
+      ref={panelRef}
+      data-sidebar-panel
+      className="flex h-full flex-col outline-none"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (!hits.length) return;
+        const key = event.key;
+        if (key === "j" || key === "ArrowDown") {
+          event.preventDefault();
+          const next = (activeIndex + 1) % hits.length;
+          jumpToHit(next);
+        } else if (key === "k" || key === "ArrowUp") {
+          event.preventDefault();
+          const next = (activeIndex - 1 + hits.length) % hits.length;
+          jumpToHit(next);
+        } else if ((key === "n" || key === "F3") && !event.shiftKey) {
+          event.preventDefault();
+          const next = (activeIndex + 1) % hits.length;
+          jumpToHit(next);
+        } else if (key === "N" || (key === "F3" && event.shiftKey)) {
+          event.preventDefault();
+          const next = (activeIndex - 1 + hits.length) % hits.length;
+          jumpToHit(next);
+        } else if (key === "Enter") {
+          event.preventDefault();
+          const hit = hits[activeIndex];
+          if (hit) handle.goToPosition(hit.destination);
+        }
+      }}
+    >
       <form
         className="flex items-center gap-1.5 border-b border-border p-2"
         onSubmit={(e) => {
@@ -119,13 +158,16 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
             if (!hits.length) return;
             if (event.key === "F3" && event.shiftKey) {
               event.preventDefault();
-              setActiveIndex((index) => (index - 1 + hits.length) % hits.length);
+              const next = (activeIndex - 1 + hits.length) % hits.length;
+              jumpToHit(next);
             } else if (event.key === "n" || event.key === "F3") {
               event.preventDefault();
-              setActiveIndex((index) => (index + 1) % hits.length);
+              const next = (activeIndex + 1) % hits.length;
+              jumpToHit(next);
             } else if (event.key === "N") {
               event.preventDefault();
-              setActiveIndex((index) => (index - 1 + hits.length) % hits.length);
+              const next = (activeIndex - 1 + hits.length) % hits.length;
+              jumpToHit(next);
             }
           }}
         />
@@ -171,10 +213,7 @@ export function SearchPanel({ handle }: { handle: DocumentViewerHandle | null })
               <li key={index}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveIndex(index);
-                    handle.goToPosition(hit.destination);
-                  }}
+                  onClick={() => jumpToHit(index)}
                   data-active={index === activeIndex ? "true" : undefined}
                   aria-current={index === activeIndex ? "true" : undefined}
                   className={`w-full rounded px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground ${index === activeIndex ? "bg-accent" : ""}`}

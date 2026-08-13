@@ -56,13 +56,45 @@ export function OutlinePanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [fallbackNodes, setFallbackNodes] = useState<OutlineNode[]>([]);
+
   const query = useQuery({
     queryKey: ["outline", filePath],
     queryFn: async () => (handle ? handle.getOutline() : []),
     enabled: Boolean(handle),
   });
   const nodes = query.data ?? [];
-  const visibleNodes = flattenOutline(nodes);
+
+  useEffect(() => {
+    if (handle) {
+      if (typeof (handle as any).getPageCount === "function") {
+        const count = (handle as any).getPageCount();
+        if (count > 0) {
+          setFallbackNodes(
+            Array.from({ length: count }, (_, i) => ({
+              title: `Page ${i + 1}`,
+              destination: { format: "pdf", pageIndex: i },
+              children: [],
+            }))
+          );
+          return;
+        }
+      }
+      setFallbackNodes(
+        Array.from({ length: 10 }, (_, i) => {
+          const frac = (i + 1) / 10;
+          return {
+            title: `Position ${Math.round(frac * 100)}%`,
+            destination: { format: "epub", fraction: frac } as any,
+            children: [],
+          };
+        })
+      );
+    }
+  }, [handle, filePath]);
+
+  const activeNodes = nodes.length > 0 ? nodes : fallbackNodes;
+  const visibleNodes = flattenOutline(activeNodes);
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -82,19 +114,11 @@ export function OutlinePanel({
 
   if (!handle) return null;
 
-  if (query.isPending) {
+  if (query.isPending && nodes.length === 0 && fallbackNodes.length === 0) {
     return (
       <p className="flex items-center justify-center gap-2 px-2 py-6 text-xs text-muted-foreground">
         <Loader2 size={13} className="animate-spin" />
         Loading outline...
-      </p>
-    );
-  }
-
-  if (nodes.length === 0) {
-    return (
-      <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-        No outline available for this document.
       </p>
     );
   }

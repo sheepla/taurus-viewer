@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { PdfMetadata, PdfOutlineNode, PdfSearchHit } from "../../shared/bindings";
 import { pdfOutlineToNodes } from "../../shared/outline";
+import { info, debug, warn } from "@tauri-apps/plugin-log";
 import type {
   DocumentPosition,
   OutlineNode,
@@ -31,9 +32,13 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   private currentPage = 0;
   private zoomLevel = 1.0;
   private viewMode: ViewMode = "scroll";
+  private columns = 1;
   private scrollContainer: HTMLElement | null = null;
   private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
   private readyListeners: Set<() => void> = new Set();
+  private zoomListeners: Set<(zoom: number) => void> = new Set();
+  private viewModeListeners: Set<(mode: ViewMode) => void> = new Set();
+  private columnListeners: Set<(cols: number) => void> = new Set();
 
   constructor(private filePath: string) {}
 
@@ -50,8 +55,8 @@ export class PdfViewerHandle implements DocumentViewerHandle {
         listener();
       }
     } catch (error) {
-      console.error("Failed to initialize PDF viewer:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
+      warn(`[PdfViewerHandle] Failed to initialize PDF viewer: ${error}`);
+      warn(`[PdfViewerHandle] Error details: ${JSON.stringify(error, null, 2)}`);
       throw error;
     }
   }
@@ -78,6 +83,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   }
 
   navigate(target: PageTarget | ScrollDelta | PageTurn): void {
+    debug(`[PdfViewerHandle] navigate: ${JSON.stringify(target)}`);
     switch (target.kind) {
       case "page":
         this.scrollToPage(target.index);
@@ -112,12 +118,26 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
   setZoom(level: ZoomLevel): void {
     this.zoomLevel = Math.max(0.25, Math.min(level, 4.0));
+    info(`[PdfViewerHandle] setZoom: ${this.zoomLevel}`);
+    for (const cb of this.zoomListeners) cb(this.zoomLevel);
   }
 
   setViewMode(mode: ViewMode): void {
     if (this.capabilities.viewModes.includes(mode)) {
       this.viewMode = mode;
+      info(`[PdfViewerHandle] setViewMode: ${mode}`);
+      for (const cb of this.viewModeListeners) cb(this.viewMode);
     }
+  }
+
+  getColumns(): number {
+    return this.columns;
+  }
+
+  setColumns(cols: number): void {
+    this.columns = Math.max(1, Math.min(2, cols));
+    info(`[PdfViewerHandle] setColumns: ${this.columns}`);
+    for (const cb of this.columnListeners) cb(this.columns);
   }
 
   async *search(query: string): AsyncIterable<SearchHit> {
@@ -182,6 +202,21 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {
     this.positionListeners.add(cb);
     return () => this.positionListeners.delete(cb);
+  }
+
+  onZoomChange(cb: (zoom: number) => void): Unsubscribe {
+    this.zoomListeners.add(cb);
+    return () => this.zoomListeners.delete(cb);
+  }
+
+  onViewModeChange(cb: (mode: ViewMode) => void): Unsubscribe {
+    this.viewModeListeners.add(cb);
+    return () => this.viewModeListeners.delete(cb);
+  }
+
+  onColumnsChange(cb: (cols: number) => void): Unsubscribe {
+    this.columnListeners.add(cb);
+    return () => this.columnListeners.delete(cb);
   }
 
   onReady(cb: () => void): Unsubscribe {

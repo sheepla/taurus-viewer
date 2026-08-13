@@ -40,6 +40,8 @@ export interface DocumentViewerHandle {
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */
   setViewMode(mode: ViewMode): void;
   getViewMode?(): ViewMode;
+  setColumns?(cols: number): void;
+  getColumns?(): number;
   search(query: string): AsyncIterable<SearchHit>;
   /** Removes any search-result highlights currently shown in the document. */
   clearSearch(): void;
@@ -54,6 +56,9 @@ export interface DocumentViewerHandle {
   goToPosition(position: PagePosition): void;
 
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe;
+  onZoomChange?(cb: (zoom: number) => void): Unsubscribe;
+  onViewModeChange?(cb: (mode: ViewMode) => void): Unsubscribe;
+  onColumnsChange?(cb: (cols: number) => void): Unsubscribe;
   onReady(cb: () => void): Unsubscribe;
 
   dispose(): void;

@@ -83,19 +83,23 @@ function PageItem({
     return () => observer.disconnect();
   }, []);
 
+  const dimensions = dimensionsQuery.data;
+  const baseWidth = dimensions?.width ? Math.min(1200, Math.max(400, dimensions.width)) : 800;
+  const scaledWidth = Math.round(baseWidth * zoom);
+
   return (
     <div
       ref={ref}
       data-page-index={pageIndex}
-      className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border min-h-[500px] w-full justify-center"
+      className="flex flex-col items-center rounded bg-background p-2 shadow-sm border border-border min-h-[500px] w-fit min-w-full justify-center"
     >
       {isVisible ? (
         <div
-          className="relative max-w-full"
-          style={{ width: `${Math.max(100, zoom * 100)}%` }}
+          className="relative max-w-none"
+          style={{ width: `${scaledWidth}px` }}
         >
           <img
-            src={`http://taurus-page.localhost/${sessionId}/${index}?w=${Math.round(1200 * zoom)}`}
+            src={`http://taurus-page.localhost/${sessionId}/${index}?w=${scaledWidth}`}
             alt={`Page ${index + 1}`}
             className="block h-auto w-full object-contain"
             style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
@@ -177,7 +181,16 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   });
 
   const handle = viewerQuery.data ?? null;
-  const zoom = handle?.getZoom?.() ?? 1;
+  const [zoom, setZoomState] = useState<number>(() => handle?.getZoom?.() ?? 1.0);
+
+  useEffect(() => {
+    if (!handle) return;
+    setZoomState(handle.getZoom?.() ?? 1.0);
+    const unsubscribe = handle.onZoomChange?.((z) => setZoomState(z));
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handle]);
 
   useEffect(() => {
     if (!handle) return;
@@ -225,6 +238,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
   const sessionId = handle?.getSessionId();
   const pageCount = handle?.getPageCount() ?? 0;
   const invertColors = configQuery.data?.document.invert_colors ?? false;
+  const columns = handle?.getColumns?.() ?? 1;
 
   if (!sessionId) {
     return (
@@ -244,10 +258,10 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
 
   return (
     <div
-      className="flex h-full w-full flex-col overflow-y-auto bg-muted/20 p-4"
+      className="flex h-full w-full flex-col overflow-auto bg-muted/20 p-4"
       ref={scrollContainerRef}
     >
-      <div className="mx-auto flex flex-col items-center gap-6 max-w-4xl w-full">
+      <div className={`mx-auto w-full ${columns === 2 ? "grid grid-cols-1 md:grid-cols-2 gap-4 max-w-6xl" : "flex flex-col items-center gap-6 max-w-4xl"}`}>
         {Array.from({ length: pageCount }, (_, index) => (
           <PageItem
             key={index}

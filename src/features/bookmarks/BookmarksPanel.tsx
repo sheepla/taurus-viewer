@@ -40,6 +40,13 @@ export function BookmarksPanel() {
     enabled: Boolean(activeTab?.filePath),
   });
 
+  const outlineQuery = useQuery({
+    queryKey: ["outline", activeTab?.filePath ?? ""],
+    queryFn: async () => (handle ? handle.getOutline() : []),
+    enabled: Boolean(handle),
+  });
+  const outlineNodes = outlineQuery.data ?? [];
+
   const toggle = useMutation({
     mutationFn: (record: {
       file_path: string;
@@ -55,7 +62,22 @@ export function BookmarksPanel() {
       queryClient.invalidateQueries({ queryKey: ["bookmarks"] }),
   });
 
-  const records = query.data ?? [];
+  const rawRecords = query.data ?? [];
+  const uniqueMap = new Map<string, BookmarkRecord>();
+  for (const rec of rawRecords) {
+    if (!uniqueMap.has(rec.page_position)) {
+      uniqueMap.set(rec.page_position, rec);
+    }
+  }
+  const records = Array.from(uniqueMap.values()).sort((a, b) => {
+    const posA = parseBookmarkPosition(a.page_position);
+    const posB = parseBookmarkPosition(b.page_position);
+    if (!posA || !posB) return 0;
+    if (posA.format === "pdf" && posB.format === "pdf") {
+      return posA.pageIndex - posB.pageIndex;
+    }
+    return a.created_at.localeCompare(b.created_at);
+  });
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -148,9 +170,9 @@ export function BookmarksPanel() {
                   }`}
                 >
                   <Star size={12} className="shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {position ? bookmarkLabel(position) : "Unknown position"}
-                  </span>
+                   <span className="min-w-0 flex-1 truncate text-left">
+                     {position ? bookmarkLabel(position, outlineNodes) : "Unknown position"}
+                   </span>
                   <span
                     role="button"
                     tabIndex={0}
