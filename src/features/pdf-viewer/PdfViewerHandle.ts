@@ -155,9 +155,9 @@ export class PdfViewerHandle implements DocumentViewerHandle {
         break;
       case "prev":
       case "left":
-        if (this.viewMode === "scroll" && this.zoomLevel > 1.01 && this.scrollContainer) {
-          this.scrollContainer.scrollBy({
-            left: -Math.max(240, this.scrollContainer.clientWidth * 0.75),
+        if (this.canPanHorizontally()) {
+          this.scrollContainer!.scrollBy({
+            left: -Math.max(240, this.scrollContainer!.clientWidth * 0.75),
             behavior: "auto",
           });
         } else {
@@ -166,9 +166,9 @@ export class PdfViewerHandle implements DocumentViewerHandle {
         break;
       case "next":
       case "right":
-        if (this.viewMode === "scroll" && this.zoomLevel > 1.01 && this.scrollContainer) {
-          this.scrollContainer.scrollBy({
-            left: Math.max(240, this.scrollContainer.clientWidth * 0.75),
+        if (this.canPanHorizontally()) {
+          this.scrollContainer!.scrollBy({
+            left: Math.max(240, this.scrollContainer!.clientWidth * 0.75),
             behavior: "auto",
           });
         } else {
@@ -306,6 +306,16 @@ export class PdfViewerHandle implements DocumentViewerHandle {
       cb();
     }
     return () => this.readyListeners.delete(cb);
+  }
+
+  /**
+   * Whether the scroll container currently overflows horizontally, meaning
+   * the left/right keys should pan instead of turning pages.
+   */
+  private canPanHorizontally(): boolean {
+    const container = this.scrollContainer;
+    if (!container || this.viewMode !== "scroll") return false;
+    return container.scrollWidth > container.clientWidth + 1;
   }
 
   /** Navigates to a page index, scrolling in SCROLL mode or selecting the

@@ -89,6 +89,47 @@ describe("PdfViewerHandle", () => {
     expect(scrollBy).toHaveBeenCalledWith({ top: 240, behavior: "auto" });
   });
 
+  it("pans horizontally in SCROLL mode when the container overflows", async () => {
+    const handle = await makeHandle();
+    const el = document.createElement("div");
+    Object.defineProperty(el, "scrollWidth", { configurable: true, value: 2000 });
+    Object.defineProperty(el, "clientWidth", { configurable: true, value: 800 });
+    const scrollBy = vi.fn();
+    (el as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
+    handle.attachScrollContainer(el);
+
+    handle.navigate({ kind: "right" });
+    expect(scrollBy).toHaveBeenCalledWith({ left: 600, behavior: "auto" });
+    handle.navigate({ kind: "left" });
+    expect(scrollBy).toHaveBeenCalledWith({ left: -600, behavior: "auto" });
+    expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 0 });
+  });
+
+  it("turns pages in SCROLL mode when the container does not overflow", async () => {
+    const handle = await makeHandle();
+    const el = document.createElement("div");
+    const scrollBy = vi.fn();
+    (el as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
+    handle.attachScrollContainer(el);
+
+    handle.navigate({ kind: "right" });
+    expect(scrollBy).not.toHaveBeenCalled();
+    expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 1 });
+  });
+
+  it("turns pages instead of panning when zoomed but not overflowing", async () => {
+    const handle = await makeHandle();
+    handle.setZoom(1.5);
+    const el = document.createElement("div");
+    const scrollBy = vi.fn();
+    (el as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
+    handle.attachScrollContainer(el);
+
+    handle.navigate({ kind: "right" });
+    expect(scrollBy).not.toHaveBeenCalled();
+    expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 1 });
+  });
+
   it("restores the persisted columns, zoom and position", async () => {
     const handle = await makeHandle();
     handle.setViewMode("pages");

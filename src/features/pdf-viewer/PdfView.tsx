@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
+import { fitSpreadScale } from "./pdfLayout";
 import { OverscrollIndicator } from "../../components/OverscrollIndicator";
 import type { Config, PageDimensions } from "../../shared/bindings";
 import type { OverscrollFeedback } from "../../shared/overscroll";
@@ -21,6 +22,8 @@ const WINDOW_AFTER_PX = 1600;
 const SPREAD_GAP_PX = 48;
 /** Horizontal gap between the two pages of a 2-column spread. */
 const SPREAD_INNER_GAP_PX = 24;
+/** Horizontal padding kept on each side of the scroll container. */
+const SPREAD_OUTER_MARGIN_PX = 16;
 
 interface LayoutPage {
   pageIndex: number;
@@ -287,6 +290,11 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     const sizes = pageSizesQuery.data;
     if (!sizes || sizes.length === 0 || pageCount === 0) return [];
 
+    const availableWidth = Math.max(
+      1,
+      viewportWidth - SPREAD_OUTER_MARGIN_PX * 2,
+    );
+
     const layoutPage = (pageIndex: number): LayoutPage => {
       const size = sizes[pageIndex];
       const nativeWidth = size?.width ?? 800;
@@ -308,12 +316,21 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
     let offset = 0;
     return grouped.map((group) => {
       const pages = group.map(layoutPage);
-      const height = Math.max(...pages.map((p) => p.displayHeight));
-      const spread = { pages, offset, height };
+      const rowWidth =
+        pages.reduce((sum, p) => sum + p.displayWidth, 0) +
+        (pages.length - 1) * SPREAD_INNER_GAP_PX;
+      const scale = fitSpreadScale(zoom, rowWidth, availableWidth);
+      const scaled = pages.map((p) => ({
+        ...p,
+        displayWidth: p.displayWidth * scale,
+        displayHeight: p.displayHeight * scale,
+      }));
+      const height = Math.max(...scaled.map((p) => p.displayHeight));
+      const spread = { pages: scaled, offset, height };
       offset += height + SPREAD_GAP_PX;
       return spread;
     });
-  }, [pageSizesQuery.data, pageCount, zoom, columns]);
+  }, [pageSizesQuery.data, pageCount, zoom, columns, viewportWidth]);
 
   useEffect(() => {
     if (!handle) return;
@@ -443,7 +460,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
 
   return (
     <div
-      className="flex h-full w-full flex-col overflow-auto bg-muted/20 p-4"
+      className="document-scroll flex h-full w-full flex-col overflow-auto bg-muted/20 p-4"
       ref={scrollContainerRef}
     >
       {pageSizesQuery.isLoading || spreads.length === 0 ? (
@@ -454,7 +471,7 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
           </div>
         </div>
       ) : (
-        <div className="relative w-full max-w-6xl mx-auto shrink-0" style={{ height: `${totalHeight}px` }}>
+        <div className="relative w-full shrink-0" style={{ height: `${totalHeight}px` }}>
           {visibleSpreads.map((spread) => (
             <div
               key={spread.pages.map((p) => p.pageIndex).join("-")}
