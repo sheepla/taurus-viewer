@@ -1,33 +1,46 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, RefreshCw, RotateCcw } from "lucide-react";
+import { FolderPlus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
+import { toast } from "sonner";
+import type { AddFolderOutcome, LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import { useTabStore } from "../tabs/TabStore";
+import {
+  flattenLibraryOrder,
+  folderName,
+  groupEntriesByFolder,
+} from "./libraryOrder";
+import { useLibraryFocusStore } from "./libraryFocusStore";
 
 function LibraryEntryCard({
   entry,
+  focused,
   openTab,
   navigate,
 }: {
   entry: LibraryEntry;
+  focused: boolean;
   openTab: (path: string, format: "pdf" | "epub") => void;
   navigate: ReturnType<typeof useNavigate>;
 }) {
   const [imgError, setImgError] = useState(false);
+  const setFocusedIndex = useLibraryFocusStore((s) => s.setFocusedIndex);
 
   return (
     <button
       type="button"
       onClick={() => {
+        setFocusedIndex(null);
         openTab(entry.path, entry.format === "epub" ? "epub" : "pdf");
         navigate({ to: "/" });
       }}
-      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-all hover:border-primary hover:shadow-md"
+      className={`group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-all hover:border-primary hover:shadow-md ${
+        focused ? "ring-2 ring-primary" : ""
+      }`}
     >
       <div className="relative flex aspect-[3/4] w-full items-center justify-center bg-muted/30">
-        {!imgError ? (
+        {!imgError && entry.thumbnail_path !== null ? (
           <img
             src={`http://taurus-thumb.localhost/${entry.id}`}
             alt={entry.title}
@@ -66,6 +79,7 @@ export function LibraryView() {
   const openTab = useTabStore((s) => s.openTab);
   const restorePersistedTabs = useTabStore((s) => s.restorePersistedTabs);
   const navigate = useNavigate();
+  const focusedIndex = useLibraryFocusStore((s) => s.focusedIndex);
 
   const foldersQuery = useQuery({
     queryKey: ["library", "folders"],
@@ -79,8 +93,21 @@ export function LibraryView() {
 
   const addFolder = useMutation({
     mutationFn: async (path: string) => {
-      await invoke("library_add_folder", { path });
+      const outcome = await invoke<AddFolderOutcome>("library_add_folder", { path });
       await invoke("library_scan_folder", { path });
+      return outcome;
+    },
+    onSuccess: (outcome) => {
+      queryClient.invalidateQueries({ queryKey: ["library"] });
+      if ("AlreadyExists" in outcome) {
+        toast.info("Folder already added");
+      }
+    },
+  });
+
+  const removeFolder = useMutation({
+    mutationFn: async (path: string) => {
+      await invoke("library_remove_folder", { path });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["library"] }),
   });
@@ -89,7 +116,30 @@ export function LibraryView() {
   const folders = foldersQuery.data ?? [];
   const entries = entriesQuery.data ?? [];
 
+  const groups = useMemo(() => groupEntriesByFolder(folders, entries), [folders, entries]);
+  const flatEntries = useMemo(
+    () => flattenLibraryOrder(folders, entries),
+    [folders, entries],
+  );
+  const focusIndexById = useMemo(() => {
+    const map = new Map<number, number>();
+    flatEntries.forEach((entry, index) => map.set(entry.id, index));
+    return map;
+  }, [flatEntries]);
+
   async function handleRefresh() {
+    setScanning(true);
+    try {
+      await Promise.all(
+        folders.map((folder) =>
+          invoke("library_scan_folder", { path: folder.path }),
+        ),
+      );
+    } catch (err) {
+      console.error("Failed to rescan folders:", err);
+    } finally {
+      setScanning(false);
+    }
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["library", "folders"] }),
       queryClient.invalidateQueries({ queryKey: ["library", "entries"] }),
@@ -132,12 +182,12 @@ export function LibraryView() {
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={refreshing}
+            disabled={refreshing || scanning}
             className="flex items-center gap-1.5 rounded border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
           >
             <RefreshCw
               size={14}
-              className={refreshing ? "animate-spin" : undefined}
+              className={refreshing || scanning ? "animate-spin" : undefined}
             />
             Refresh
           </button>
@@ -162,16 +212,54 @@ export function LibraryView() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-            {entries.map((entry) => (
-              <LibraryEntryCard
-                key={entry.id}
-                entry={entry}
-                openTab={openTab}
-                navigate={navigate}
-              />
-            ))}
-          </div>
+          groups.map((group) => (
+            <section
+              key={group.folder ? group.folder.id : "ungrouped"}
+              className="mb-8 last:mb-0"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h3
+                  className="flex min-w-0 items-center gap-2 text-sm font-semibold"
+                  title={group.folder?.path ?? "Ungrouped"}
+                >
+                  <span className="truncate">
+                    {group.folder ? folderName(group.folder.path) : "Ungrouped"}
+                  </span>
+                  <span className="shrink-0 text-[10px] font-normal text-muted-foreground uppercase">
+                    {group.entries.length} item(s)
+                  </span>
+                </h3>
+                {group.folder && (
+                  <button
+                    type="button"
+                    onClick={() => void removeFolder.mutateAsync(group.folder!.path)}
+                    className="flex shrink-0 items-center gap-1 rounded border border-input bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
+                  >
+                    <Trash2 size={12} />
+                    Remove folder
+                  </button>
+                )}
+              </div>
+              <div
+                data-library-grid
+                className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+              >
+                {group.entries.map((entry) => {
+                  const index = focusIndexById.get(entry.id) ?? 0;
+                  return (
+                    <div key={entry.id} data-library-focus={index}>
+                      <LibraryEntryCard
+                        entry={entry}
+                        focused={index === focusedIndex}
+                        openTab={openTab}
+                        navigate={navigate}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))
         )}
       </div>
 

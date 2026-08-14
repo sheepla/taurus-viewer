@@ -10,16 +10,22 @@ export const commands = {
 	pdfClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("pdf_close", { sessionId })),
 	/**  Returns page dimensions for layout calculation. */
 	pdfGetPageDimensions: (sessionId: string, pageIndex: number) => typedError<PageDimensions, AppError>(__TAURI_INVOKE("pdf_get_page_dimensions", { sessionId, pageIndex })),
+	/**
+	 *  Returns the dimensions of every page in a single call, so the frontend
+	 *  can lay out (and window) the document without a per-page IPC round trip.
+	 */
+	pdfGetPageSizes: (sessionId: string) => typedError<PageDimensions[], AppError>(__TAURI_INVOKE("pdf_get_page_sizes", { sessionId })),
 	/**  Returns the document's outline (bookmark tree), if any. */
 	pdfGetOutline: (sessionId: string) => typedError<PdfOutlineNode[], AppError>(__TAURI_INVOKE("pdf_get_outline", { sessionId })),
 	/**  Returns case-insensitive text-search hits across all pages. */
 	pdfSearch: (sessionId: string, query: string) => typedError<PdfSearchHit[], AppError>(__TAURI_INVOKE("pdf_search", { sessionId, query })),
 	pdfGetTextLayer: (sessionId: string, pageIndex: number) => typedError<PdfTextRun[], AppError>(__TAURI_INVOKE("pdf_get_text_layer", { sessionId, pageIndex })),
+	pdfGetPageHighlights: (sessionId: string, pageIndex: number, query: string) => typedError<PdfHighlightRect[], AppError>(__TAURI_INVOKE("pdf_get_page_highlights", { sessionId, pageIndex, query })),
 	/**  Opens an EPUB file, creates a session, and returns session ID. */
 	epubOpen: (filePath: string) => typedError<EpubMetadata, AppError>(__TAURI_INVOKE("epub_open", { filePath })),
 	/**  Closes an EPUB session and releases resources. */
 	epubClose: (sessionId: string) => typedError<null, AppError>(__TAURI_INVOKE("epub_close", { sessionId })),
-	libraryAddFolder: (path: string) => typedError<number, AppError>(__TAURI_INVOKE("library_add_folder", { path })),
+	libraryAddFolder: (path: string) => typedError<AddFolderOutcome, AppError>(__TAURI_INVOKE("library_add_folder", { path })),
 	libraryRemoveFolder: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("library_remove_folder", { path })),
 	libraryListFolders: () => typedError<LibraryFolder[], AppError>(__TAURI_INVOKE("library_list_folders")),
 	libraryListEntries: () => typedError<LibraryEntry[], AppError>(__TAURI_INVOKE("library_list_entries")),
@@ -49,6 +55,13 @@ export const commands = {
 };
 
 /* Types */
+/**  Outcome of registering a library folder. */
+export type AddFolderOutcome = 
+/**  The folder was newly inserted; carries the new folder id. */
+({ Created: number }) & { AlreadyExists?: never } | 
+/**  The folder was already registered; carries the existing folder id. */
+({ AlreadyExists: number }) & { Created?: never };
+
 export type AppError = { kind: "Pdf"; message: string } | { kind: "Epub"; message: string } | { kind: "Database"; message: string } | { kind: "Config"; message: string } | { kind: "Io"; message: string };
 
 /**  A bookmark entry (page-scoped, label-less toggle). */
@@ -112,9 +125,18 @@ export type PageDimensions = {
 	height: number | null,
 };
 
+export type PdfHighlightRect = {
+	x: number | null,
+	y: number | null,
+	width: number | null,
+	height: number | null,
+};
+
 export type PdfMetadata = {
 	session_id: string,
 	page_count: number,
+	/**  Document title from PDF metadata, when present. */
+	title: string | null,
 };
 
 /**  A single outline (bookmark) entry in a PDF document. */

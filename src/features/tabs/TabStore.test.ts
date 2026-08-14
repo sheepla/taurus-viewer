@@ -23,14 +23,18 @@ const PDF_POSITION: DocumentPosition = {
   pageCount: 10,
 };
 
-function makeFakeHandle(): DocumentViewerHandle {
+function makeFakeHandle(overrides: Partial<DocumentViewerHandle> = {}): DocumentViewerHandle {
   return {
     capabilities: { viewModes: ["scroll", "pages"], hasOutline: true, hasTextSearch: false },
     dispose: vi.fn(),
     getCurrentPosition: () => PDF_POSITION,
     getProgress: () => 0.2,
+    getZoom: () => 1,
+    getViewMode: () => "scroll",
+    getColumns: () => 2,
     setZoom: vi.fn(),
     setViewMode: vi.fn(),
+    setColumns: vi.fn(),
     navigate: vi.fn(),
     onPositionChange: () => () => {},
     onReady: () => () => {},
@@ -39,6 +43,7 @@ function makeFakeHandle(): DocumentViewerHandle {
     search: () => ({} as AsyncIterable<never>),
     clearSearch: vi.fn(),
     getOutline: () => Promise.resolve([]),
+    ...overrides,
   };
 }
 
@@ -53,9 +58,29 @@ describe("TabStore", () => {
     const { tabs, activeTabId } = useTabStore.getState();
 
     expect(tabs.length).toBe(1);
-    expect(tabs[0]?.title).toBe("doc.pdf");
+    expect(tabs[0]?.title).toBe("doc");
     expect(tabs[0]?.format).toBe("pdf");
     expect(activeTabId).toBe(tabs[0]?.id);
+  });
+
+  it("sets the tab title from document metadata via setTabTitle", () => {
+    const store = useTabStore.getState();
+    store.openTab("/doc.pdf", "pdf");
+    const tabId = useTabStore.getState().tabs[0]?.id ?? "";
+
+    useTabStore.getState().setTabTitle(tabId, "The Official Title");
+
+    expect(useTabStore.getState().tabs[0]?.title).toBe("The Official Title");
+  });
+
+  it("ignores blank titles in setTabTitle", () => {
+    const store = useTabStore.getState();
+    store.openTab("/doc.pdf", "pdf");
+    const tabId = useTabStore.getState().tabs[0]?.id ?? "";
+
+    useTabStore.getState().setTabTitle(tabId, "   ");
+
+    expect(useTabStore.getState().tabs[0]?.title).toBe("doc");
   });
 
   it("carries the restore state on a restored tab", () => {
@@ -129,6 +154,21 @@ describe("TabStore", () => {
       "tab_push_closed",
       expect.objectContaining({ filePath: "/doc1.pdf", format: "pdf" }),
     );
+  });
+
+  it("captures the column count in the persisted view state", () => {
+    const store = useTabStore.getState();
+    store.openTab("/doc1.pdf", "pdf");
+    const tabId = useTabStore.getState().tabs[0]?.id ?? "";
+    useTabStore.getState().setHandle(tabId, makeFakeHandle({ getColumns: () => 2 }));
+
+    useTabStore.getState().closeTab(tabId);
+
+    const [, args] = invokeMock.mock.calls[invokeMock.mock.calls.length - 1] ?? [];
+    const viewState = JSON.parse((args as { viewState: string }).viewState) as {
+      columns: number;
+    };
+    expect(viewState.columns).toBe(2);
   });
 
   it("restores the most recently closed tab via restoreLastClosedTab", async () => {

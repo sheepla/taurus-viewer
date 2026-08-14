@@ -1,4 +1,7 @@
+import type { OverscrollFeedback } from "./overscroll";
 import type {
+  BookmarkLabel,
+  ColumnCount,
   DocumentPosition,
   OutlineNode,
   PagePosition,
@@ -40,8 +43,8 @@ export interface DocumentViewerHandle {
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */
   setViewMode(mode: ViewMode): void;
   getViewMode?(): ViewMode;
-  setColumns?(cols: number): void;
-  getColumns?(): number;
+  setColumns?(cols: ColumnCount): void;
+  getColumns?(): ColumnCount;
   search(query: string): AsyncIterable<SearchHit>;
   /** Removes any search-result highlights currently shown in the document. */
   clearSearch(): void;
@@ -55,10 +58,18 @@ export interface DocumentViewerHandle {
   /** Jumps to a page-scoped position (e.g. a bookmark). */
   goToPosition(position: PagePosition): void;
 
+  /** Resolves a stored bookmark position into display parts (section heading
+   *  + page number). Optional; the UI falls back to a generic label. */
+  getBookmarkLabel?(position: PagePosition): BookmarkLabel | null;
+
+  /** Document title from metadata, or null when unavailable. */
+  getTitle?(): string | null;
+
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe;
   onZoomChange?(cb: (zoom: number) => void): Unsubscribe;
   onViewModeChange?(cb: (mode: ViewMode) => void): Unsubscribe;
-  onColumnsChange?(cb: (cols: number) => void): Unsubscribe;
+  onColumnsChange?(cb: (cols: ColumnCount) => void): Unsubscribe;
+  onOverscrollChange?(cb: (feedback: OverscrollFeedback) => void): Unsubscribe;
   onReady(cb: () => void): Unsubscribe;
 
   dispose(): void;

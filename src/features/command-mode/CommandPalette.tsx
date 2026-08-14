@@ -27,6 +27,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const { tabs, activateTab, openTab } = useTabStore();
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -64,6 +65,13 @@ export function CommandPalette() {
   useEffect(() => {
     setSelectedIndex((index) => Math.min(index, Math.max(0, candidates.length - 1)));
   }, [candidates.length]);
+
+  useEffect(() => {
+    // Keep the selected candidate visible when navigating with the arrow keys.
+    listRef.current
+      ?.querySelector(`[data-index="${selectedIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || (e.ctrlKey && e.key.toLowerCase() === "n")) {
@@ -117,17 +125,22 @@ export function CommandPalette() {
             className="font-mono text-sm"
           />
         </div>
-        <div className="my-2 max-h-72 overflow-y-auto px-2 pb-2 space-y-1">
+        <div
+          data-testid="palette-list"
+          ref={listRef}
+          className="my-2 max-h-72 overflow-y-auto px-2 pb-2 space-y-1"
+        >
           {filteredTabs.length > 0 && (
             <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
               Open Tabs
             </div>
           )}
-          {filteredTabs.map((tab) => (
+          {filteredTabs.map((tab, index) => (
             <div
               key={tab.id}
               role="button"
               tabIndex={0}
+              data-index={index}
               onClick={() => handleSelectTab(tab.id)}
               className={`flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs ${selectedIndex === filteredTabs.findIndex((item) => item.id === tab.id) ? "bg-accent" : ""}`}
             >
@@ -145,11 +158,12 @@ export function CommandPalette() {
               Library Documents
             </div>
           )}
-          {libraryEntries.map((entry) => (
+          {libraryEntries.map((entry, index) => (
             <div
               key={entry.id}
               role="button"
               tabIndex={0}
+              data-index={filteredTabs.length + index}
               onClick={() => handleSelectEntry(entry)}
               className={`flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors text-xs ${selectedIndex === filteredTabs.length + libraryEntries.findIndex((item) => item.id === entry.id) ? "bg-accent" : ""}`}
             >

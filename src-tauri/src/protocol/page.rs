@@ -1,6 +1,7 @@
 use crate::pdf::recolor::RenderTheme;
 use crate::pdf::render_cache::PdfRenderService;
-use tauri::Manager;
+use std::sync::Arc;
+use tauri::{http::Response, Manager};
 
 /// Register the `taurus-page://` custom URI scheme protocol.
 ///
@@ -8,17 +9,21 @@ use tauri::Manager;
 ///
 /// This handler is a thin dispatcher: rendering and LRU caching are delegated
 /// to `PdfRenderService` (architecture 2.5.2, detailed design ch. 4).
+///
+/// The handler is asynchronous: the render runs on the blocking thread pool so
+/// the webview/main thread is never stalled by a PDFium render (Tauri custom
+/// protocol handlers block the main thread when run synchronously).
 pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-    builder.register_uri_scheme_protocol("taurus-page", |ctx, request| {
+    builder.register_asynchronous_uri_scheme_protocol("taurus-page", |ctx, request, responder| {
         let uri = request.uri();
-        let path = uri.path();
-        let query = uri.query().unwrap_or("");
+        let path = uri.path().to_string();
+        let query = uri.query().unwrap_or("").to_string();
 
-        let params: std::collections::HashMap<&str, &str> = query
+        let params: std::collections::HashMap<String, String> = query
             .split('&')
             .filter_map(|pair| {
                 let mut kv = pair.split('=');
-                Some((kv.next()?, kv.next().unwrap_or("")))
+                Some((kv.next()?.to_string(), kv.next().unwrap_or("").to_string()))
             })
             .collect();
 
@@ -31,56 +36,80 @@ pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wr
             .get("contrast")
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
-        let theme = match params.get("theme").copied() {
+        let theme = match params.get("theme").map(|s| s.as_str()) {
             Some("dark") => RenderTheme::Dark,
             _ => RenderTheme::Light,
         };
 
-        let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let parts: Vec<String> = path
+            .trim_matches('/')
+            .split('/')
+            .map(|s| s.to_string())
+            .collect();
         if parts.len() < 2 {
-            return tauri::http::Response::builder()
-                .status(400)
-                .header("Content-Type", "text/plain")
-                .body(b"Invalid URI format. Expected: /session_id/page_index".to_vec())
-                .unwrap();
+            responder.respond(
+                Response::builder()
+                    .status(400)
+                    .header("Content-Type", "text/plain")
+                    .body(b"Invalid URI format. Expected: /session_id/page_index".to_vec())
+                    .unwrap(),
+            );
+            return;
         }
 
-        let session_id = parts[0];
         let page_index: u16 = match parts[1].parse() {
             Ok(idx) => idx,
             Err(_) => {
-                return tauri::http::Response::builder()
-                    .status(400)
-                    .header("Content-Type", "text/plain")
-                    .body(format!("Invalid page index: {}", parts[1]).into_bytes())
-                    .unwrap()
+                responder.respond(
+                    Response::builder()
+                        .status(400)
+                        .header("Content-Type", "text/plain")
+                        .body(format!("Invalid page index: {}", parts[1]).into_bytes())
+                        .unwrap(),
+                );
+                return;
             }
         };
 
-        let service = ctx.app_handle().try_state::<PdfRenderService>();
-
-        let result = match service {
-            Some(service) => tauri::async_runtime::block_on(
-                service.get_or_render(session_id, page_index, width, theme, saturation, contrast),
-            ),
-            None => Err(crate::error::AppError::Pdf(
-                "Render service not available".into(),
-            )),
+        let Some(service) = ctx.app_handle().try_state::<Arc<PdfRenderService>>() else {
+            responder.respond(
+                Response::builder()
+                    .status(500)
+                    .header("Content-Type", "text/plain")
+                    .body(b"Render service not available".to_vec())
+                    .unwrap(),
+            );
+            return;
         };
+        let service = service.inner().clone();
+        let session_id = parts[0].clone();
 
-        match result {
-            Ok(bytes) => tauri::http::Response::builder()
-                .status(200)
-                .header("Content-Type", "image/png")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Cache-Control", "public, max-age=3600")
-                .body(bytes)
-                .unwrap(),
-            Err(err) => tauri::http::Response::builder()
-                .status(500)
-                .header("Content-Type", "text/plain")
-                .body(format!("Failed to render page: {}", err).into_bytes())
-                .unwrap(),
-        }
+        tauri::async_runtime::spawn_blocking(move || {
+            let result = tauri::async_runtime::block_on(service.get_or_render(
+                &session_id,
+                page_index,
+                width,
+                theme,
+                saturation,
+                contrast,
+            ));
+
+            let response = match result {
+                Ok(bytes) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", "image/png")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Cache-Control", "public, max-age=3600")
+                    .body(bytes)
+                    .unwrap(),
+                Err(err) => Response::builder()
+                    .status(500)
+                    .header("Content-Type", "text/plain")
+                    .body(format!("Failed to render page: {}", err).into_bytes())
+                    .unwrap(),
+            };
+
+            responder.respond(response);
+        });
     })
 }

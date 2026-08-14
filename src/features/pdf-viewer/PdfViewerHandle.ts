@@ -2,7 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import type { PdfMetadata, PdfOutlineNode, PdfSearchHit } from "../../shared/bindings";
 import { pdfOutlineToNodes } from "../../shared/outline";
 import { info, debug, warn } from "@tauri-apps/plugin-log";
+import {
+  OverscrollController,
+  OVERSCROLL_PAGES_TUNING,
+  OVERSCROLL_SCROLL_TUNING,
+  type OverscrollFeedback,
+} from "../../shared/overscroll";
 import type {
+  ColumnCount,
   DocumentPosition,
   OutlineNode,
   PagePosition,
@@ -29,16 +36,26 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
   private sessionId: string | null = null;
   private pageCount = 0;
+  private documentTitle: string | null = null;
   private currentPage = 0;
   private zoomLevel = 1.0;
   private viewMode: ViewMode = "scroll";
-  private columns = 1;
+  private columns: ColumnCount = 1;
   private scrollContainer: HTMLElement | null = null;
+  private scrollTargetResolver: ((pageIndex: number) => number | null) | null = null;
+  private pendingScrollPage: number | null = null;
+  private pendingScrollOffset: number | null = null;
   private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
   private readyListeners: Set<() => void> = new Set();
   private zoomListeners: Set<(zoom: number) => void> = new Set();
   private viewModeListeners: Set<(mode: ViewMode) => void> = new Set();
-  private columnListeners: Set<(cols: number) => void> = new Set();
+  private columnListeners: Set<(cols: ColumnCount) => void> = new Set();
+  private readonly overscroll = new OverscrollController(OVERSCROLL_SCROLL_TUNING);
+  /** Last observed scroll position, used to detect a blocked document edge. */
+  private lastScrollPos: number | null = null;
+
+  /** Containers that already have their scroll/wheel listeners attached. */
+  private static readonly attachedContainers = new WeakSet<HTMLElement>();
 
   constructor(private filePath: string) {}
 
@@ -50,6 +67,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
       this.sessionId = meta.session_id;
       this.pageCount = meta.page_count;
+      this.documentTitle = meta.title ?? null;
 
       for (const listener of this.readyListeners) {
         listener();
@@ -62,12 +80,47 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   }
 
   attachScrollContainer(el: HTMLElement): void {
+    if (!PdfViewerHandle.attachedContainers.has(el)) {
+      PdfViewerHandle.attachedContainers.add(el);
+      el.addEventListener("scroll", () => this.onScroll(), { passive: true });
+      el.addEventListener("wheel", (e) => this.handlePdfWheel(e), {
+        passive: false,
+      });
+    }
     this.scrollContainer = el;
-    el.addEventListener("scroll", () => this.onScroll(), { passive: true });
+  }
+
+  /**
+   * Registers a resolver that maps a page index to its absolute scroll offset
+   * (in the scroll container's coordinate space). Used by windowed rendering:
+   * when the target page is not mounted, the handle scrolls by offset instead
+   * of `scrollIntoView`. A pending navigation is resolved as soon as a
+   * resolver becomes available (e.g. after page sizes load).
+   */
+  setScrollTargetResolver(
+    cb: ((pageIndex: number) => number | null) | null,
+  ): void {
+    this.scrollTargetResolver = cb;
+    if (cb) {
+      if (this.pendingScrollPage !== null) {
+        const page = this.pendingScrollPage;
+        this.pendingScrollPage = null;
+        this.scrollToPage(page);
+      }
+      if (this.pendingScrollOffset !== null && this.scrollContainer) {
+        const offset = this.pendingScrollOffset;
+        this.pendingScrollOffset = null;
+        this.scrollContainer.scrollTop = offset;
+      }
+    }
   }
 
   getSessionId(): string | null {
     return this.sessionId;
+  }
+
+  getTitle(): string | null {
+    return this.documentTitle;
   }
 
   getPageCount(): number {
@@ -86,31 +139,40 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     debug(`[PdfViewerHandle] navigate: ${JSON.stringify(target)}`);
     switch (target.kind) {
       case "page":
-        this.scrollToPage(target.index);
+        this.turnPage(target.index);
         break;
       case "scroll":
-        this.scrollContainer?.scrollBy({ top: target.deltaY, behavior: "auto" });
+        if (this.viewMode === "pages") {
+          // PAGES mode: the vertical scroll keys turn pages.
+          if (target.deltaY > 0) {
+            this.goToPage(this.currentPage + 1);
+          } else if (target.deltaY < 0) {
+            this.goToPage(this.currentPage - 1);
+          }
+        } else {
+          this.scrollContainer?.scrollBy({ top: target.deltaY, behavior: "auto" });
+        }
         break;
       case "prev":
       case "left":
-        if (this.zoomLevel > 1.01 && this.scrollContainer) {
+        if (this.viewMode === "scroll" && this.zoomLevel > 1.01 && this.scrollContainer) {
           this.scrollContainer.scrollBy({
             left: -Math.max(240, this.scrollContainer.clientWidth * 0.75),
             behavior: "auto",
           });
         } else {
-          this.scrollToPage(this.currentPage - 1);
+          this.turnPage(this.currentPage - 1);
         }
         break;
       case "next":
       case "right":
-        if (this.zoomLevel > 1.01 && this.scrollContainer) {
+        if (this.viewMode === "scroll" && this.zoomLevel > 1.01 && this.scrollContainer) {
           this.scrollContainer.scrollBy({
             left: Math.max(240, this.scrollContainer.clientWidth * 0.75),
             behavior: "auto",
           });
         } else {
-          this.scrollToPage(this.currentPage + 1);
+          this.turnPage(this.currentPage + 1);
         }
         break;
     }
@@ -125,17 +187,21 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   setViewMode(mode: ViewMode): void {
     if (this.capabilities.viewModes.includes(mode)) {
       this.viewMode = mode;
+      this.lastScrollPos = null;
+      this.overscroll.configure(
+        mode === "scroll" ? OVERSCROLL_SCROLL_TUNING : OVERSCROLL_PAGES_TUNING,
+      );
       info(`[PdfViewerHandle] setViewMode: ${mode}`);
       for (const cb of this.viewModeListeners) cb(this.viewMode);
     }
   }
 
-  getColumns(): number {
+  getColumns(): ColumnCount {
     return this.columns;
   }
 
-  setColumns(cols: number): void {
-    this.columns = Math.max(1, Math.min(2, cols));
+  setColumns(cols: ColumnCount): void {
+    this.columns = cols;
     info(`[PdfViewerHandle] setColumns: ${this.columns}`);
     for (const cb of this.columnListeners) cb(this.columns);
   }
@@ -181,21 +247,32 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   }
 
   restore(state: TabViewState): void {
-    this.zoomLevel = state.zoom ?? 1.0;
+    this.setZoom(state.zoom ?? 1.0);
+    if (state.columns) {
+      this.setColumns(state.columns);
+    }
     if (state.viewMode) {
       this.setViewMode(state.viewMode);
     }
     if (state.position.format === "pdf") {
-      this.scrollToPage(state.position.pageIndex);
-      if (this.scrollContainer && state.position.scrollOffset > 0) {
-        this.scrollContainer.scrollTop = state.position.scrollOffset;
+      if (this.viewMode === "pages") {
+        this.goToPage(state.position.pageIndex);
+      } else {
+        this.scrollToPage(state.position.pageIndex);
+        if (state.position.scrollOffset > 0) {
+          if (this.scrollContainer && this.scrollTargetResolver) {
+            this.scrollContainer.scrollTop = state.position.scrollOffset;
+          } else {
+            this.pendingScrollOffset = state.position.scrollOffset;
+          }
+        }
       }
     }
   }
 
   goToPosition(position: PagePosition): void {
     if (position.format === "pdf") {
-      this.scrollToPage(position.pageIndex);
+      this.turnPage(position.pageIndex);
     }
   }
 
@@ -214,9 +291,13 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return () => this.viewModeListeners.delete(cb);
   }
 
-  onColumnsChange(cb: (cols: number) => void): Unsubscribe {
+  onColumnsChange(cb: (cols: ColumnCount) => void): Unsubscribe {
     this.columnListeners.add(cb);
     return () => this.columnListeners.delete(cb);
+  }
+
+  onOverscrollChange(cb: (feedback: OverscrollFeedback) => void): Unsubscribe {
+    return this.overscroll.subscribe(cb);
   }
 
   onReady(cb: () => void): Unsubscribe {
@@ -227,18 +308,90 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return () => this.readyListeners.delete(cb);
   }
 
+  /** Navigates to a page index, scrolling in SCROLL mode or selecting the
+   *  page in PAGES mode. */
+  private turnPage(index: number): void {
+    if (this.viewMode === "pages") {
+      this.goToPage(index);
+    } else {
+      this.scrollToPage(index);
+    }
+  }
+
+  /** Updates the current page without scrolling (PAGES-mode navigation). */
+  private goToPage(index: number): void {
+    if (this.pageCount === 0) return;
+    const clamped = Math.max(0, Math.min(index, this.pageCount - 1));
+    if (clamped === this.currentPage) return;
+    this.currentPage = clamped;
+    this.notifyPositionChange();
+  }
+
   private scrollToPage(index: number): void {
     if (this.pageCount === 0) return;
+    if (this.viewMode === "pages") {
+      this.goToPage(index);
+      return;
+    }
     const clamped = Math.max(0, Math.min(index, this.pageCount - 1));
     const page = this.scrollContainer?.querySelector<HTMLElement>(
       `[data-page-index="${clamped}"]`,
     );
     if (page) {
       page.scrollIntoView({ behavior: "auto", block: "start" });
+    } else {
+      const offset = this.scrollTargetResolver?.(clamped) ?? null;
+      if (offset !== null && this.scrollContainer) {
+        // The resolver reports offsets in the inner content coordinate space,
+        // while scrollTop is measured from the container's padding edge.
+        const paddingTop =
+          Number.parseFloat(getComputedStyle(this.scrollContainer).paddingTop) ||
+          0;
+        this.scrollContainer.scrollTop = offset + paddingTop;
+      } else {
+        this.pendingScrollPage = clamped;
+      }
     }
     if (clamped !== this.currentPage) {
       this.currentPage = clamped;
       this.notifyPositionChange();
+    }
+  }
+
+  private handlePdfWheel(e: WheelEvent): void {
+    if (e.deltaY === 0) return;
+    if (this.overscroll.currentPhase === "cooldown") return;
+
+    if (this.viewMode === "pages") {
+      // Fixed layout: the wheel always engages the overscroll page turn.
+      e.preventDefault();
+      const trigger = this.overscroll.handleWheel(e.deltaY);
+      if (trigger === null) return;
+      this.goToPage(this.currentPage + (trigger === "next" ? 1 : -1));
+      return;
+    }
+
+    const container = this.scrollContainer;
+    if (!container) return;
+    // SCROLL mode: keep native scrolling while the position moves, and hand
+    // over to the overscroll gesture only once the wheel is blocked at a
+    // document edge.
+    if (
+      this.lastScrollPos !== null &&
+      container.scrollTop === this.lastScrollPos
+    ) {
+      e.preventDefault();
+      const trigger = this.overscroll.handleWheel(e.deltaY);
+      if (trigger === null) return;
+      this.lastScrollPos = null;
+      // At the document edges the page turn clamps, so the gesture only
+      // provides visual feedback there.
+      this.goToPage(this.currentPage + (trigger === "next" ? 1 : -1));
+      return;
+    }
+    this.lastScrollPos = container.scrollTop;
+    if (this.overscroll.currentPhase !== "idle") {
+      this.overscroll.reset();
     }
   }
 
@@ -251,11 +404,11 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     const containerTop = container.getBoundingClientRect().top;
     let best = this.currentPage;
     let bestDistance = Infinity;
-    pages.forEach((page, index) => {
+    pages.forEach((page) => {
       const distance = Math.abs(page.getBoundingClientRect().top - containerTop);
       if (distance < bestDistance) {
         bestDistance = distance;
-        best = index;
+        best = Number.parseInt(page.dataset.pageIndex ?? "0", 10);
       }
     });
 
@@ -280,5 +433,6 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     this.scrollContainer = null;
     this.positionListeners.clear();
     this.readyListeners.clear();
+    this.overscroll.dispose();
   }
 }

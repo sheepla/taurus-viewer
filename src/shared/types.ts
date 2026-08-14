@@ -19,6 +19,9 @@ export type TabViewState = {
   position: DocumentPosition;
   zoom: ZoomLevel;
   viewMode: ViewMode;
+  /** Number of columns in the two-page layout. Optional for backward
+   *  compatibility with states persisted before this field existed. */
+  columns?: ColumnCount;
 };
 
 /** Uniform representation of the current reading position (used for tab restore). */
@@ -29,7 +32,16 @@ export type DocumentPosition =
       scrollOffset: number;
       pageCount: number;
     }
-  | { format: "epub"; cfi: string };
+  | {
+      format: "epub";
+      cfi: string;
+      /** Current section href (from foliate-js `lastLocation.tocItem`), for
+       *  outline-follow matching. Optional for backward compatibility with
+       *  previously persisted positions. */
+      href?: string;
+      /** Book-wide reading progress in [0, 1]. */
+      fraction?: number;
+    };
 
 /**
  * Minimal, page-scoped position used as a stable bookmark key (PDF keyed on
@@ -48,6 +60,9 @@ export type ZoomLevel = number;
 
 export type ViewMode = "scroll" | "pages";
 
+/** Number of columns in the two-page layout (1 or 2). */
+export type ColumnCount = 1 | 2;
+
 export type SearchHit = {
   /** Destination to jump to when the hit is selected. */
   destination: PagePosition;
@@ -59,6 +74,12 @@ export type OutlineNode = {
   title: string;
   destination: PagePosition;
   children: OutlineNode[];
+};
+
+/** Display parts for a stored bookmark label: section heading + page number. */
+export type BookmarkLabel = {
+  heading: string | null;
+  page: string | null;
 };
 
 export type Unsubscribe = () => void;

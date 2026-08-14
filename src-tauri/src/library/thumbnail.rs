@@ -1,19 +1,18 @@
 use crate::error::AppError;
-use crate::pdf::renderer::PdfRenderer;
+use crate::pdf::session::render_pdf_thumbnail;
 use std::path::{Path, PathBuf};
 
 pub struct ThumbnailGenerator {
     cache_dir: PathBuf,
-    renderer: PdfRenderer,
+    resource_dir: Option<PathBuf>,
 }
 
 impl ThumbnailGenerator {
-    pub fn new(cache_dir: PathBuf) -> Result<Self, AppError> {
-        let renderer = PdfRenderer::new()?;
-        Ok(Self {
+    pub fn new(cache_dir: PathBuf, resource_dir: Option<PathBuf>) -> Self {
+        Self {
             cache_dir,
-            renderer,
-        })
+            resource_dir,
+        }
     }
 
     pub fn generate_pdf_thumbnail(
@@ -21,7 +20,7 @@ impl ThumbnailGenerator {
         entry_id: i64,
         pdf_path: &Path,
     ) -> Result<PathBuf, AppError> {
-        let png_bytes = self.renderer.render_page_to_png(pdf_path, 0, 300)?;
+        let png_bytes = render_pdf_thumbnail(pdf_path, self.resource_dir.as_deref(), 300)?;
         let out_path = self.cache_dir.join(format!("{}.png", entry_id));
         std::fs::write(&out_path, png_bytes)?;
         Ok(out_path)
@@ -50,5 +49,49 @@ impl ThumbnailGenerator {
             .save(&out_path)
             .map_err(|e| AppError::Io(e.to_string()))?;
         Ok(Some(out_path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn probe_cache_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join("taurus_thumb_probe");
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn generates_pdf_thumbnail_png() {
+        let cache_dir = probe_cache_dir();
+        let gen = ThumbnailGenerator::new(cache_dir.clone(), None);
+        let out = gen
+            .generate_pdf_thumbnail(1, Path::new("../testdata/sample-a4.pdf"))
+            .expect("generate pdf thumbnail");
+        assert_eq!(out, cache_dir.join("1.png"));
+        let bytes = fs::read(&out).expect("read thumbnail");
+        assert!(!bytes.is_empty());
+        assert_eq!(
+            &bytes[0..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+        );
+    }
+
+    #[test]
+    fn generates_epub_thumbnail_when_cover_exists() {
+        let cache_dir = probe_cache_dir();
+        let gen = ThumbnailGenerator::new(cache_dir.clone(), None);
+        let out = gen
+            .generate_epub_thumbnail(
+                2,
+                Path::new("../testdata/alices adventures in wonderland_unknown.epub"),
+            )
+            .expect("generate epub thumbnail")
+            .expect("epub has a cover");
+        assert_eq!(out, cache_dir.join("2.png"));
+        let bytes = fs::read(&out).expect("read thumbnail");
+        assert!(!bytes.is_empty());
     }
 }

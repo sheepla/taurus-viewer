@@ -9,7 +9,10 @@ import { useTabStore } from "../tabs/TabStore";
 import { useUiModeStore } from "./uiModeStore";
 import { makePagePosition } from "../bookmarks/bookmarks";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
-import type { PageTurn, ViewMode } from "../../shared/types";
+import type { ColumnCount, PageTurn, ViewMode } from "../../shared/types";
+import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
+import { flattenLibraryOrder, moveFocusIndex } from "../library/libraryOrder";
+import { useLibraryFocusStore } from "../library/libraryFocusStore";
 import { useHelpModalStore } from "../../components/HelpModal";
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -30,6 +33,21 @@ function getActiveHandle(): DocumentViewerHandle | null {
   return tab?.handle ?? null;
 }
 
+function gridColumns(grid: HTMLElement): number {
+  const value = getComputedStyle(grid).gridTemplateColumns;
+  const count = value.split(" ").filter(Boolean).length;
+  return count > 0 ? count : 1;
+}
+
+function scrollLibraryFocusIntoView(): void {
+  const { focusedIndex } = useLibraryFocusStore.getState();
+  if (focusedIndex === null) return;
+  const el = document.querySelector<HTMLElement>(
+    `[data-library-focus="${focusedIndex}"]`,
+  );
+  el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
 function zoomStep(handle: DocumentViewerHandle, factor: number): void {
   const current = typeof handle.getZoom === "function" ? handle.getZoom() ?? 1.0 : 1.0;
   const next = Math.max(0.25, Math.min(4.0, current * factor));
@@ -48,8 +66,8 @@ function toggleViewMode(handle: DocumentViewerHandle): void {
 }
 
 function toggleColumns(handle: DocumentViewerHandle): void {
-  const current = typeof handle.getColumns === "function" ? handle.getColumns() ?? 1 : 1;
-  const next = current === 1 ? 2 : 1;
+  const current: ColumnCount = typeof handle.getColumns === "function" ? handle.getColumns() ?? 1 : 1;
+  const next: ColumnCount = current === 1 ? 2 : 1;
   if (typeof handle.setColumns === "function") {
     handle.setColumns(next);
     toast.info(`Columns: ${next}`);
@@ -202,21 +220,11 @@ export function useKeyDispatcher(): void {
         return;
       }
 
-      if (currentMode !== "NORMAL") {
-        const sidebarPanel = document.querySelector("[data-sidebar-panel]");
-        if (sidebarPanel?.contains(e.target as Node) || sidebarPanel?.contains(document.activeElement)) {
-          if (key === "tab") {
-            e.preventDefault();
-            (sidebarPanel as HTMLElement).focus();
-          }
-          return;
-        }
-      }
-
-      if (!handle) return;
-
-      // Mode transitions.
+      // Mode transitions — handled before the sidebar-panel swallow so they
+      // always work regardless of where focus is (e.g. pressing `t` again to
+      // leave TREE mode while the outline panel is focused).
       if (key === "/") {
+        if (!handle) return;
         e.preventDefault();
         setMode("SEARCH");
         setTimeout(() => {
@@ -230,12 +238,12 @@ export function useKeyDispatcher(): void {
       }
       if (key === "t") {
         e.preventDefault();
-        setMode("TREE");
+        setMode(currentMode === "TREE" ? "NORMAL" : "TREE");
         return;
       }
       if (key === "b" && e.shiftKey) {
         e.preventDefault();
-        setMode("BOOKMARKS");
+        setMode(currentMode === "BOOKMARKS" ? "NORMAL" : "BOOKMARKS");
         return;
       }
       if (key === "v") {
@@ -244,8 +252,74 @@ export function useKeyDispatcher(): void {
         return;
       }
       if (key === "m") {
+        if (!handle) return;
         e.preventDefault();
         toggleBookmark(queryClient);
+        return;
+      }
+
+      if (currentMode !== "NORMAL") {
+        const sidebarPanel = document.querySelector("[data-sidebar-panel]");
+        if (sidebarPanel?.contains(e.target as Node) || sidebarPanel?.contains(document.activeElement)) {
+          if (key === "tab") {
+            // Sidebar panels own their Tab handling (e.g. the outline panel
+            // cycles its selection); never let Tab move the focus frame.
+            e.preventDefault();
+          }
+          return;
+        }
+      }
+
+      // Home screen: traverse the library grid with hjkl/cursor keys and
+      // open the focused document with Enter.
+      if (!handle) {
+        const grid = document.querySelector<HTMLElement>("[data-library-grid]");
+        if (grid) {
+          const folders =
+            queryClient.getQueryData<LibraryFolder[]>(["library", "folders"]) ?? [];
+          const entries =
+            queryClient.getQueryData<LibraryEntry[]>(["library", "entries"]) ?? [];
+          const flat = flattenLibraryOrder(folders, entries);
+          if (flat.length > 0) {
+            const focusStore = useLibraryFocusStore.getState();
+            const current = Math.min(focusStore.focusedIndex ?? 0, flat.length - 1);
+            const columns = gridColumns(grid);
+
+            if (key === "j" || key === "arrowdown") {
+              e.preventDefault();
+              focusStore.setFocusedIndex(moveFocusIndex(current, "down", flat.length, columns));
+              scrollLibraryFocusIntoView();
+              return;
+            }
+            if (key === "k" || key === "arrowup") {
+              e.preventDefault();
+              focusStore.setFocusedIndex(moveFocusIndex(current, "up", flat.length, columns));
+              scrollLibraryFocusIntoView();
+              return;
+            }
+            if (key === "h" || key === "arrowleft") {
+              e.preventDefault();
+              focusStore.setFocusedIndex(moveFocusIndex(current, "left", flat.length, columns));
+              scrollLibraryFocusIntoView();
+              return;
+            }
+            if (key === "l" || key === "arrowright") {
+              e.preventDefault();
+              focusStore.setFocusedIndex(moveFocusIndex(current, "right", flat.length, columns));
+              scrollLibraryFocusIntoView();
+              return;
+            }
+            if (key === "enter") {
+              e.preventDefault();
+              const entry = flat[current];
+              useTabStore
+                .getState()
+                .openTab(entry.path, entry.format === "epub" ? "epub" : "pdf");
+              navigate({ to: "/" });
+              return;
+            }
+          }
+        }
         return;
       }
 
@@ -333,6 +407,7 @@ export function useKeyDispatcher(): void {
         return;
       }
       e.preventDefault();
+      (window as any).__navCalled = true;
       handle.navigate(turn);
     };
 

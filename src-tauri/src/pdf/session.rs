@@ -2,10 +2,23 @@ use crate::error::AppError;
 use crate::pdf::outline::{collect_outline, PdfOutlineNode};
 use crate::pdf::recolor::{apply_recolor, RenderTheme};
 use crate::pdf::search::{find_matches, PdfSearchHit, PdfTextRun};
+use dashmap::DashMap;
 use pdfium_render::prelude::*;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, OnceLock,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PdfHighlightRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
 
 // PDFium DLLをバイナリに埋め込み
 #[cfg(target_os = "windows")]
@@ -13,11 +26,17 @@ static PDFIUM_DLL_BYTES: &[u8] = include_bytes!("../../pdfium.dll");
 
 static RESOLVED_PDFIUM_DLL_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+/// Process-wide `Pdfium` binding resolved once on first use (detailed design
+/// 4.5). `Send`/`Sync` come from the `sync` crate feature. PDFium FFI is NOT
+/// thread-safe, so every access to the document is serialized by a mutex.
+static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
+static PDFIUM_INIT_LOCK: Mutex<()> = Mutex::new(());
+
 pub struct PdfSession {
     pub id: String,
-    pub file_path: PathBuf,
     pub page_count: usize,
-    pub resource_dir: Option<PathBuf>,
+    pub title: Option<String>,
+    pub document: Mutex<PdfDocument<'static>>,
 }
 
 impl PdfSession {
@@ -28,25 +47,42 @@ impl PdfSession {
     ) -> Result<Self, AppError> {
         println!("Creating PDF session for file: {:?}", file_path);
 
-        let page_count = Self::get_page_count(&file_path, resource_dir.as_deref())?;
+        let pdfium = Self::get_pdfium(resource_dir.as_deref())?;
+        let document = pdfium
+            .load_pdf_from_file(&file_path, None)
+            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
+
+        let page_count = document.pages().len() as usize;
+        let title = document
+            .metadata()
+            .get(PdfDocumentMetadataTagType::Title)
+            .map(|tag| tag.value().to_string());
 
         println!("PDF has {} pages", page_count);
 
         Ok(Self {
             id,
-            file_path,
             page_count,
-            resource_dir,
+            title,
+            document: Mutex::new(document),
         })
     }
 
-    fn get_page_count(file_path: &Path, resource_dir: Option<&Path>) -> Result<usize, AppError> {
-        let pdfium = Self::create_pdfium(resource_dir)?;
-        let document = pdfium
-            .load_pdf_from_file(file_path, None)
-            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
-
-        Ok(document.pages().len() as usize)
+    fn get_pdfium(resource_dir: Option<&Path>) -> Result<&'static Pdfium, AppError> {
+        if let Some(p) = PDFIUM.get() {
+            return Ok(p);
+        }
+        let _guard = PDFIUM_INIT_LOCK.lock().expect("PDFIUM_INIT_LOCK poisoned");
+        if let Some(p) = PDFIUM.get() {
+            return Ok(p);
+        }
+        let dll_path = Self::resolve_pdfium_path(resource_dir)?;
+        let bindings = Pdfium::bind_to_library(&dll_path)
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| AppError::Pdf(format!("Failed to bind PDFium: {}", e)))?;
+        let pdfium = Pdfium::new(bindings);
+        let _ = PDFIUM.set(pdfium);
+        Ok(PDFIUM.get().unwrap())
     }
 
     fn ensure_pdfium_dll() -> Result<PathBuf, AppError> {
@@ -123,41 +159,9 @@ impl PdfSession {
         ))
     }
 
-    fn create_pdfium(resource_dir: Option<&Path>) -> Result<Pdfium, AppError> {
-        // If we have a cached resolved path, try binding directly
-        if let Some(path) = RESOLVED_PDFIUM_DLL_PATH.get() {
-            if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                return Ok(Pdfium::new(bindings));
-            }
-        }
-
-        let dll_path = Self::resolve_pdfium_path(resource_dir)?;
-        match Pdfium::bind_to_library(&dll_path) {
-            Ok(bindings) => Ok(Pdfium::new(bindings)),
-            Err(e) => {
-                // Fallback to system library if library load fails
-                match Pdfium::bind_to_system_library() {
-                    Ok(bindings) => Ok(Pdfium::new(bindings)),
-                    Err(sys_err) => Err(AppError::Pdf(format!(
-                        "Failed to bind PDFium library from {:?}: {}; and system library failed: {}",
-                        dll_path, e, sys_err
-                    ))),
-                }
-            }
-        }
-    }
-
-    fn create_session_pdfium(&self) -> Result<Pdfium, AppError> {
-        Self::create_pdfium(self.resource_dir.as_deref())
-    }
-
     pub fn get_page_dimensions(&self, page_index: u16) -> Result<(f64, f64), AppError> {
-        let pdfium = self.create_session_pdfium()?;
-        let document = pdfium
-            .load_pdf_from_file(&self.file_path, None)
-            .map_err(|e| AppError::Pdf(e.to_string()))?;
-
-        let page = document
+        let doc = self.document.lock().unwrap();
+        let page = doc
             .pages()
             .get(page_index)
             .map_err(|e| AppError::Pdf(e.to_string()))?;
@@ -168,24 +172,28 @@ impl PdfSession {
         Ok((width, height))
     }
 
-    pub fn get_outline(&self) -> Result<Vec<PdfOutlineNode>, AppError> {
-        let pdfium = self.create_session_pdfium()?;
-        let document = pdfium
-            .load_pdf_from_file(&self.file_path, None)
-            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
+    pub fn get_page_sizes(&self) -> Result<Vec<(f64, f64)>, AppError> {
+        let doc = self.document.lock().unwrap();
+        let sizes = doc
+            .pages()
+            .page_sizes()
+            .map_err(|e| AppError::Pdf(e.to_string()))?;
+        Ok(sizes
+            .into_iter()
+            .map(|size| (size.width().value as f64, size.height().value as f64))
+            .collect())
+    }
 
-        Ok(collect_outline(&document))
+    pub fn get_outline(&self) -> Result<Vec<PdfOutlineNode>, AppError> {
+        let doc = self.document.lock().unwrap();
+        Ok(collect_outline(&doc))
     }
 
     pub fn search_text(&self, query: &str) -> Result<Vec<PdfSearchHit>, AppError> {
         const MAX_RESULTS: usize = 200;
 
-        let pdfium = self.create_session_pdfium()?;
-        let document = pdfium
-            .load_pdf_from_file(&self.file_path, None)
-            .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
-
-        let pages = document.pages();
+        let doc = self.document.lock().unwrap();
+        let pages = doc.pages();
         let mut hits = Vec::new();
 
         for page_index in 0..pages.len() {
@@ -209,11 +217,8 @@ impl PdfSession {
     }
 
     pub fn get_text_layer(&self, page_index: u16) -> Result<Vec<PdfTextRun>, AppError> {
-        let pdfium = self.create_session_pdfium()?;
-        let document = pdfium
-            .load_pdf_from_file(&self.file_path, None)
-            .map_err(|e| AppError::Pdf(e.to_string()))?;
-        let page = document
+        let doc = self.document.lock().unwrap();
+        let page = doc
             .pages()
             .get(page_index)
             .map_err(|e| AppError::Pdf(e.to_string()))?;
@@ -238,6 +243,38 @@ impl PdfSession {
             .collect())
     }
 
+    pub fn get_page_highlights(
+        &self,
+        page_index: u16,
+        query: &str,
+    ) -> Result<Vec<PdfHighlightRect>, AppError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let doc = self.document.lock().unwrap();
+        let page = doc
+            .pages()
+            .get(page_index)
+            .map_err(|e| AppError::Pdf(e.to_string()))?;
+        let text_page = page.text().map_err(|e| AppError::Pdf(e.to_string()))?;
+        let mut rects = Vec::new();
+        for segment in text_page.segments().iter() {
+            let value = segment.text();
+            if find_matches(&value, query, 1).is_empty() {
+                continue;
+            }
+            let bounds = segment.bounds();
+            rects.push(PdfHighlightRect {
+                x: bounds.left().value as f64,
+                y: bounds.bottom().value as f64,
+                width: bounds.width().value as f64,
+                height: bounds.height().value as f64,
+            });
+        }
+        Ok(rects)
+    }
+
     pub fn render_page_recolored(
         &self,
         page_index: u16,
@@ -246,12 +283,8 @@ impl PdfSession {
         saturation: u32,
         contrast: u32,
     ) -> Result<Vec<u8>, AppError> {
-        let pdfium = self.create_session_pdfium()?;
-        let document = pdfium
-            .load_pdf_from_file(&self.file_path, None)
-            .map_err(|e| AppError::Pdf(format!("Failed to load document for rendering: {}", e)))?;
-
-        let page = document
+        let doc = self.document.lock().unwrap();
+        let page = doc
             .pages()
             .get(page_index)
             .map_err(|e| AppError::Pdf(format!("Failed to get page {}: {}", page_index, e)))?;
@@ -263,6 +296,7 @@ impl PdfSession {
             .map_err(|e| AppError::Pdf(format!("Failed to render page: {}", e)))?;
 
         let mut image = bitmap.as_image().into_rgba8();
+        drop(doc);
 
         apply_recolor(image.as_mut(), theme, saturation, contrast);
 
@@ -276,38 +310,74 @@ impl PdfSession {
     }
 }
 
+/// Renders page 0 of a PDF to a PNG using the shared process-wide `Pdfium`
+/// instance (detailed design 4.5). Used for library thumbnails; the file is
+/// parsed once per thumbnail and the instance is not registered as a session.
+pub fn render_pdf_thumbnail(
+    file_path: &Path,
+    resource_dir: Option<&Path>,
+    target_width: u32,
+) -> Result<Vec<u8>, AppError> {
+    let pdfium = PdfSession::get_pdfium(resource_dir)?;
+    let document = pdfium
+        .load_pdf_from_file(file_path, None)
+        .map_err(|e| AppError::Pdf(format!("Failed to load PDF: {}", e)))?;
+
+    let page = document
+        .pages()
+        .get(0)
+        .map_err(|e| AppError::Pdf(e.to_string()))?;
+
+    let render_config = PdfRenderConfig::new().set_target_width(target_width as i32);
+
+    let bitmap = page
+        .render_with_config(&render_config)
+        .map_err(|e| AppError::Pdf(format!("Failed to render page: {}", e)))?;
+
+    let image = bitmap.as_image().into_rgba8();
+
+    let mut buffer = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut buffer);
+    image
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|e| AppError::Pdf(format!("Failed to encode PNG: {}", e)))?;
+
+    Ok(buffer)
+}
+
 pub struct PdfSessionManager {
-    sessions: HashMap<String, PdfSession>,
-    next_id: u64,
+    sessions: DashMap<String, Arc<PdfSession>>,
+    next_id: AtomicU64,
 }
 
 impl PdfSessionManager {
     pub fn new() -> Self {
         Self {
-            sessions: HashMap::new(),
-            next_id: 1,
+            sessions: DashMap::new(),
+            next_id: AtomicU64::new(1),
         }
     }
 
     pub fn open_session(
-        &mut self,
+        &self,
         file_path: &Path,
         resource_dir: Option<PathBuf>,
-    ) -> Result<&PdfSession, AppError> {
-        let id = format!("pdf_session_{}", self.next_id);
-        self.next_id += 1;
+    ) -> Result<Arc<PdfSession>, AppError> {
+        let id_num = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let id = format!("pdf_session_{}", id_num);
 
         let session = PdfSession::new(id.clone(), file_path.to_path_buf(), resource_dir)?;
-        self.sessions.insert(id.clone(), session);
+        let session_arc = Arc::new(session);
+        self.sessions.insert(id.clone(), session_arc.clone());
 
-        Ok(self.sessions.get(&id).unwrap())
+        Ok(session_arc)
     }
 
-    pub fn get_session(&self, id: &str) -> Option<&PdfSession> {
-        self.sessions.get(id)
+    pub fn get_session(&self, id: &str) -> Option<Arc<PdfSession>> {
+        self.sessions.get(id).map(|entry| entry.value().clone())
     }
 
-    pub fn close_session(&mut self, id: &str) {
+    pub fn close_session(&self, id: &str) {
         self.sessions.remove(id);
     }
 }
@@ -337,6 +407,14 @@ mod tests {
         assert!(!outline.is_empty());
         assert_eq!(outline[0].title, "English:");
         assert_eq!(outline[0].page_index, 0);
+    }
+
+    #[test]
+    fn extracts_document_title_metadata() {
+        let session = test_session();
+        if let Some(title) = session.title.as_deref() {
+            assert!(!title.is_empty());
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::epub::session::EpubSessionManager;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{http::Response, Manager};
 use tokio::sync::RwLock;
 
 /// Register the `taurus-epub://` custom URI scheme protocol.
@@ -9,40 +9,64 @@ use tokio::sync::RwLock;
 ///
 /// Serves the raw EPUB file bytes so the frontend can fetch a `Blob` and pass
 /// it to foliate-js (detailed design 1.5).
+///
+/// The handler is asynchronous: the file read runs on the blocking thread pool
+/// so the webview/main thread is never stalled by a large EPUB transfer.
 pub fn register(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-    builder.register_uri_scheme_protocol("taurus-epub", |ctx, request| {
-        let session_id = request.uri().path().trim_matches('/');
+    builder.register_asynchronous_uri_scheme_protocol("taurus-epub", |ctx, request, responder| {
+        let session_id = request.uri().path().trim_matches('/').to_string();
 
-        let manager = ctx
+        let Some(manager) = ctx
             .app_handle()
-            .try_state::<Arc<RwLock<EpubSessionManager>>>();
-
-        let result = match manager {
-            Some(manager) => tauri::async_runtime::block_on(async {
-                let manager = manager.read().await;
-                let session = manager
-                    .get_session(session_id)
-                    .ok_or_else(|| crate::error::AppError::Epub("Session not found".into()))?;
-                std::fs::read(&session.file_path)
-                    .map_err(|e| crate::error::AppError::Io(e.to_string()))
-            }),
-            None => Err(crate::error::AppError::Epub(
-                "Session manager not available".into(),
-            )),
+            .try_state::<Arc<RwLock<EpubSessionManager>>>()
+        else {
+            responder.respond(
+                Response::builder()
+                    .status(500)
+                    .header("Content-Type", "text/plain")
+                    .body(b"Session manager not available".to_vec())
+                    .unwrap(),
+            );
+            return;
         };
+        let manager = manager.inner().clone();
 
-        match result {
-            Ok(bytes) => tauri::http::Response::builder()
-                .status(200)
-                .header("Content-Type", "application/epub+zip")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(bytes)
-                .unwrap(),
-            Err(err) => tauri::http::Response::builder()
-                .status(500)
-                .header("Content-Type", "text/plain")
-                .body(format!("Failed to serve EPUB: {}", err).into_bytes())
-                .unwrap(),
-        }
+        tauri::async_runtime::spawn(async move {
+            let path = {
+                let manager = manager.read().await;
+                match manager.get_session(&session_id) {
+                    Some(session) => session.file_path.clone(),
+                    None => {
+                        responder.respond(
+                            Response::builder()
+                                .status(404)
+                                .header("Content-Type", "text/plain")
+                                .body(b"Session not found".to_vec())
+                                .unwrap(),
+                        );
+                        return;
+                    }
+                }
+            };
+
+            tauri::async_runtime::spawn_blocking(move || {
+                let result =
+                    std::fs::read(&path).map_err(|e| crate::error::AppError::Io(e.to_string()));
+                let response = match result {
+                    Ok(bytes) => Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/epub+zip")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(bytes)
+                        .unwrap(),
+                    Err(err) => Response::builder()
+                        .status(500)
+                        .header("Content-Type", "text/plain")
+                        .body(format!("Failed to serve EPUB: {}", err).into_bytes())
+                        .unwrap(),
+                };
+                responder.respond(response);
+            });
+        });
     })
 }

@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let pdf_session_manager = Arc::new(RwLock::new(PdfSessionManager::new()));
+    let pdf_session_manager = Arc::new(PdfSessionManager::new());
     let epub_session_manager = Arc::new(RwLock::new(EpubSessionManager::new()));
     let render_service = PdfRenderService::new(pdf_session_manager.clone());
 
@@ -35,9 +35,11 @@ pub fn run() {
         commands::pdf::pdf_open,
         commands::pdf::pdf_close,
         commands::pdf::pdf_get_page_dimensions,
+        commands::pdf::pdf_get_page_sizes,
         commands::pdf::pdf_get_outline,
         commands::pdf::pdf_search,
         commands::pdf::pdf_get_text_layer,
+        commands::pdf::pdf_get_page_highlights,
         commands::epub::epub_open,
         commands::epub::epub_close,
         commands::library::library_add_folder,
@@ -81,7 +83,7 @@ pub fn run() {
         .manage(pdf_session_manager)
         .manage(epub_session_manager)
         .manage(config_state)
-        .manage(render_service)
+        .manage(Arc::new(render_service))
         .setup(move |app| {
             builder.mount_events(app);
 

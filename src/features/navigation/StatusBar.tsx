@@ -70,14 +70,22 @@ function StatusBarContent({
     handle.getCurrentPosition(),
   );
   const [progress, setProgress] = useState<number>(() => handle.getProgress());
-  const [viewMode] = useState<ViewMode>(() => currentViewMode(handle));
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    currentViewMode(handle),
+  );
 
   useEffect(() => {
     const unsubscribe = handle.onPositionChange(() => {
       setPosition(handle.getCurrentPosition());
       setProgress(handle.getProgress());
     });
-    return unsubscribe;
+    const unsubscribeViewMode = handle.onViewModeChange?.((mode) =>
+      setViewMode(mode),
+    );
+    return () => {
+      unsubscribe();
+      unsubscribeViewMode?.();
+    };
   }, [handle]);
 
   return (

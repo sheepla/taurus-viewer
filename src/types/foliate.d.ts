@@ -6,6 +6,8 @@ declare module "foliate-js/view.js" {
     href?: string;
     index?: number;
     direction?: string;
+    /** The TOC entry matching the current reading position (from `book.toc`). */
+    tocItem?: { label?: string; href?: string } | null;
     [key: string]: unknown;
   }
 

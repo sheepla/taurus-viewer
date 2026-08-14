@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { View } from "foliate-js/view.js";
 import { epubOutlineToNodes } from "../../shared/outline";
+import { resolveEpubTitle } from "../../shared/epubTitle";
 import { info, debug, warn } from "@tauri-apps/plugin-log";
 import type {
+  BookmarkLabel,
+  ColumnCount,
   DocumentPosition,
   OutlineNode,
   PagePosition,
@@ -15,6 +18,18 @@ import type {
   ViewMode,
   ZoomLevel,
 } from "../../shared/types";
+import {
+  resolveEpubBookmarkLabel,
+  type EpubBookInfo,
+} from "../bookmarks/bookmarks";
+import {
+  OverscrollController,
+  OVERSCROLL_PAGES_TUNING,
+  OVERSCROLL_SCROLL_TUNING,
+  shouldEngageScrolledOverscroll,
+  type OverscrollDirection,
+  type OverscrollFeedback,
+} from "../../shared/overscroll";
 import type {
   DocumentViewerHandle,
   ViewerCapabilities,
@@ -35,9 +50,17 @@ interface EpubTocEntry {
 }
 
 type FoliateRenderer = HTMLElement & {
-  getContents?: () => Array<{ doc?: Document }>;
+  getContents?: () => Array<{ index?: number; doc?: Document }>;
   scrollBy?: (dx: number, dy: number) => void;
   setStyles?: (styles: string | [string, string]) => void;
+  atStart?: boolean;
+  atEnd?: boolean;
+  scrolled?: boolean;
+  containerPosition?: number;
+  viewSize?: number;
+  size?: number;
+  nextSection?: () => Promise<void>;
+  prevSection?: () => Promise<void>;
 };
 
 type FoliateView = View & {
@@ -45,6 +68,7 @@ type FoliateView = View & {
 };
 
 const FORWARDED_KEY_ATTRIBUTE = "data-taurus-key-forwarding";
+const FORWARDED_WHEEL_ATTRIBUTE = "data-taurus-wheel-forwarding";
 const APP_KEYS = new Set([
   "ArrowDown",
   "ArrowLeft",
@@ -87,19 +111,14 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   private sessionId: string | null = null;
   private view: FoliateView;
   private zoomLevel = 1.0;
-  private columns = 1;
+  private columns: ColumnCount = 1;
   private viewMode: ViewMode = "pages";
   private readyListeners: Set<() => void> = new Set();
   private positionListeners: Set<(pos: DocumentPosition) => void> = new Set();
   private zoomListeners: Set<(zoom: number) => void> = new Set();
   private viewModeListeners: Set<(mode: ViewMode) => void> = new Set();
-  private columnListeners: Set<(cols: number) => void> = new Set();
-  private overscrollState: { phase: "idle" | "pulling" | "cooldown"; accumulatedDelta: number } = {
-    phase: "idle",
-    accumulatedDelta: 0,
-  };
-  private resetTimer: number | null = null;
-  private cooldownTimer: number | null = null;
+  private columnListeners: Set<(cols: ColumnCount) => void> = new Set();
+  private readonly overscroll = new OverscrollController();
 
   constructor(private filePath: string) {
     this.view = document.createElement("foliate-view") as FoliateView;
@@ -111,7 +130,11 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     this.view.addEventListener("relocate", () => this.onRelocate());
     this.view.addEventListener("load", (event) => {
       const detail = (event as CustomEvent<{ doc?: Document }>).detail;
-      if (detail?.doc) this.forwardContentKeys(detail.doc);
+      if (detail?.doc) {
+        this.forwardContentKeys(detail.doc);
+        this.forwardContentWheel(detail.doc);
+      }
+      this.applyViewMode();
       this.applyReaderStyles();
     });
     this.view.addEventListener("wheel", (e) => this.handleEpubWheel(e as WheelEvent), { passive: false });
@@ -130,6 +153,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
       await this.view.open(file);
       await this.view.init({ showTextStart: true });
+      this.applyViewMode();
       this.applyReaderStyles();
       this.bindLoadedContent();
 
@@ -144,24 +168,74 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
   navigate(target: PageTarget | ScrollDelta | PageTurn): void {
     debug(`[EpubViewerHandle] navigate: ${JSON.stringify(target)}`);
+    console.log(`[EpubViewerHandle] NAVIGATE CALLED: ${JSON.stringify(target)}`);
+    const renderer = this.view.renderer;
+    const scrolled = renderer !== undefined && renderer.scrolled === true;
     switch (target.kind) {
       case "page":
         this.view.goTo({ fraction: target.index }).catch((err) => warn(`[EpubViewerHandle] goTo failed: ${err}`));
         break;
       case "scroll":
-        this.view.renderer?.scrollBy?.(0, target.deltaY);
+        if (scrolled && renderer.containerPosition !== undefined) {
+          // A section is one long page: scroll it directly. Native clamping
+          // stops at the section edges. When the key pushes toward an edge,
+          // hand the input over to the overscroll gesture to turn the section.
+          const direction: OverscrollDirection = target.deltaY > 0 ? "next" : "prev";
+          if (this.isAtSectionEdge(direction)) {
+            this.turnViaOverscroll(direction);
+          } else {
+            renderer.containerPosition += target.deltaY;
+          }
+        } else if (target.deltaY > 0) {
+          // PAGES mode: the vertical scroll keys turn pages.
+          this.view.next().catch((err) => warn(`[EpubViewerHandle] next failed: ${err}`));
+        } else if (target.deltaY < 0) {
+          this.view.prev().catch((err) => warn(`[EpubViewerHandle] prev failed: ${err}`));
+        }
         break;
       case "prev":
-        this.view.prev().catch((err) => warn(`[EpubViewerHandle] prev failed: ${err}`));
+        if (scrolled) {
+          if (renderer.prevSection) {
+            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] prevSection failed: ${err}`));
+          }
+        } else {
+          this.view.prev().catch((err) => warn(`[EpubViewerHandle] prev failed: ${err}`));
+        }
         break;
       case "next":
-        this.view.next().catch((err) => warn(`[EpubViewerHandle] next failed: ${err}`));
+        if (scrolled) {
+          if (renderer.nextSection) {
+            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] nextSection failed: ${err}`));
+          }
+        } else {
+          this.view.next().catch((err) => warn(`[EpubViewerHandle] next failed: ${err}`));
+        }
         break;
       case "left":
-        this.view.goLeft().catch((err) => warn(`[EpubViewerHandle] goLeft failed: ${err}`));
+        if (scrolled) {
+          // Mirrors goLeft(): prev for LTR, next for RTL.
+          const rtl = (this.view.book as { dir?: string } | undefined)?.dir === "rtl";
+          if (rtl && renderer.nextSection) {
+            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+          } else if (!rtl && renderer.prevSection) {
+            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+          }
+        } else {
+          this.view.goLeft().catch((err) => warn(`[EpubViewerHandle] goLeft failed: ${err}`));
+        }
         break;
       case "right":
-        this.view.goRight().catch((err) => warn(`[EpubViewerHandle] goRight failed: ${err}`));
+        if (scrolled) {
+          // Mirrors goRight(): next for LTR, prev for RTL.
+          const rtl = (this.view.book as { dir?: string } | undefined)?.dir === "rtl";
+          if (rtl && renderer.prevSection) {
+            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+          } else if (!rtl && renderer.nextSection) {
+            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+          }
+        } else {
+          this.view.goRight().catch((err) => warn(`[EpubViewerHandle] goRight failed: ${err}`));
+        }
         break;
     }
   }
@@ -180,28 +254,42 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   setViewMode(mode: ViewMode): void {
     if (this.capabilities.viewModes.includes(mode)) {
       this.viewMode = mode;
-      this.view.setAttribute("flow", mode === "scroll" ? "scrolled" : "paginated");
+      this.applyViewMode();
       info(`[EpubViewerHandle] setViewMode: ${mode}`);
       for (const cb of this.viewModeListeners) cb(this.viewMode);
     }
+  }
+
+  /**
+   * Switches the foliate layout. The paginator reads its own `flow` attribute,
+   * so it must be set on the renderer, not on the foliate-view element.
+   * Keeps the overscroll gesture tuning in sync with the actual flow.
+   */
+  private applyViewMode(): void {
+    const renderer = this.view.renderer;
+    if (!renderer) return;
+    renderer.setAttribute(
+      "flow",
+      this.viewMode === "scroll" ? "scrolled" : "paginated",
+    );
+    this.overscroll.configure(
+      this.viewMode === "scroll" ? OVERSCROLL_SCROLL_TUNING : OVERSCROLL_PAGES_TUNING,
+    );
   }
 
   getViewMode(): ViewMode {
     return this.viewMode;
   }
 
-  getColumns(): number {
+  getColumns(): ColumnCount {
     return this.columns;
   }
 
-  setColumns(cols: number): void {
-    this.columns = Math.max(1, Math.min(2, cols));
+  setColumns(cols: ColumnCount): void {
+    this.columns = cols;
     const paginator = this.view.renderer;
     if (paginator) {
-      // Set max-column-count attributes to force the desired column count
       paginator.setAttribute("max-column-count", this.columns.toString());
-      paginator.setAttribute("max-column-count-portrait", this.columns.toString());
-      paginator.setAttribute("max-column-count-spread", this.columns.toString());
     }
     info(`[EpubViewerHandle] setColumns: ${this.columns}`);
     for (const cb of this.columnListeners) cb(this.columns);
@@ -231,10 +319,18 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     return epubOutlineToNodes(book?.toc);
   }
 
+  getTitle(): string | null {
+    const book = this.view.book as { metadata?: { title?: unknown } } | undefined;
+    return resolveEpubTitle(book?.metadata?.title);
+  }
+
   getCurrentPosition(): DocumentPosition {
+    const location = this.view.lastLocation;
     return {
       format: "epub",
-      cfi: this.view.lastLocation?.cfi ?? "epubcfi(/0)",
+      cfi: location?.cfi ?? "epubcfi(/0)",
+      href: location?.tocItem?.href ?? undefined,
+      fraction: location?.fraction,
     };
   }
 
@@ -247,6 +343,9 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   restore(state: TabViewState): void {
     if (state.zoom) {
       this.setZoom(state.zoom);
+    }
+    if (state.columns) {
+      this.setColumns(state.columns);
     }
     if (state.position.format === "epub" && "cfi" in state.position) {
       this.view.goTo({ cfi: state.position.cfi }).catch(console.error);
@@ -264,6 +363,14 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     if (target) this.view.goTo(target).catch(console.error);
   }
 
+  getBookmarkLabel(position: PagePosition): BookmarkLabel | null {
+    if (position.format !== "epub" || !("cfi" in position)) return null;
+    return resolveEpubBookmarkLabel(
+      position.cfi,
+      this.view.book as EpubBookInfo,
+    );
+  }
+
   onPositionChange(cb: (pos: DocumentPosition) => void): Unsubscribe {
     this.positionListeners.add(cb);
     return () => this.positionListeners.delete(cb);
@@ -279,7 +386,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     return () => this.viewModeListeners.delete(cb);
   }
 
-  onColumnsChange(cb: (cols: number) => void): Unsubscribe {
+  onColumnsChange(cb: (cols: ColumnCount) => void): Unsubscribe {
     this.columnListeners.add(cb);
     return () => this.columnListeners.delete(cb);
   }
@@ -298,69 +405,71 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   }
 
   private handleEpubWheel(e: WheelEvent): void {
-    if (this.overscrollState.phase === "cooldown") return;
-    const renderer = this.view.renderer as any;
-    if (!renderer) return;
+    // The wheel listener is attached to both the content document and the
+    // host element; the same event retargets across the shadow boundary, so
+    // only process it once.
+    const event = e as WheelEvent & { __overscrollHandled?: boolean };
+    if (event.__overscrollHandled) return;
+    event.__overscrollHandled = true;
 
-    // Find the actual scrollable element inside the paginator's shadow DOM
-    let el: HTMLElement | null = null;
-    if (renderer.shadowRoot) {
-      // In SCROLL mode, the container has overflow:auto and is the scrollable element
-      // In PAGES mode, the container has overflow:hidden and pages are scrolled via scrollBy
-      el = renderer.shadowRoot.querySelector('#container') as HTMLElement;
+    if (this.overscroll.currentPhase === "cooldown") {
+      debug(`[EpubOverscroll] cooldown, ignoring deltaY=${e.deltaY}`);
+      return;
     }
-    if (!el) {
-      // Fallback: try to find any scrollable element in the view's shadow DOM
-      if (this.view.shadowRoot) {
-        el = this.view.shadowRoot.querySelector('foliate-paginator')?.shadowRoot?.querySelector('#container') as HTMLElement;
-      }
-    }
-    if (!el) {
-      el = this.view;
-    }
+    const renderer = this.view.renderer;
+    if (!renderer || e.deltaY === 0) return;
 
-    const scrollTop = el.scrollTop ?? 0;
-    const scrollHeight = el.scrollHeight ?? 0;
-    const clientHeight = el.clientHeight ?? 0;
-
-    // Use paginator's internal atStart/atEnd which check both adjacent sections and page position
-    const isAtBottom = typeof renderer.atEnd === "function" ? renderer.atEnd : 
-      (typeof renderer.atBottom === "function" ? renderer.atBottom() : (scrollTop + clientHeight >= scrollHeight - 15));
-    const isAtTop = typeof renderer.atStart === "function" ? renderer.atStart : 
-      (typeof renderer.atTop === "function" ? renderer.atTop() : (scrollTop <= 15));
-
-    debug(`[EpubOverscroll] deltaY=${e.deltaY}, scrollTop=${scrollTop}, clientHeight=${clientHeight}, scrollHeight=${scrollHeight}, isAtTop=${isAtTop}, isAtBottom=${isAtBottom}, viewMode=${this.viewMode}`);
-
-    if ((e.deltaY > 0 && isAtBottom) || (e.deltaY < 0 && isAtTop)) {
-      e.preventDefault();
-      if (this.overscrollState.phase === "idle") {
-        this.overscrollState.phase = "pulling";
-        this.overscrollState.accumulatedDelta = 0;
-      }
-      this.overscrollState.accumulatedDelta += e.deltaY;
-
-      if (this.resetTimer) window.clearTimeout(this.resetTimer);
-      this.resetTimer = window.setTimeout(() => {
-        this.overscrollState = { phase: "idle", accumulatedDelta: 0 };
-      }, 300);
-
-      if (Math.abs(this.overscrollState.accumulatedDelta) >= 100) {
-        const direction = this.overscrollState.accumulatedDelta > 0 ? "next" : "prev";
-        this.overscrollState = { phase: "cooldown", accumulatedDelta: 0 };
-        info(`[EpubOverscroll] Triggering ${direction} page turn via overscroll`);
-        if (direction === "next") {
-          this.view.next().catch((err) => warn(`[EpubOverscroll] next() failed: ${err}`));
-        } else {
-          this.view.prev().catch((err) => warn(`[EpubOverscroll] prev() failed: ${err}`));
+    const scrolled = renderer.scrolled === true;
+    if (scrolled) {
+      // A section is one long page: keep native scrolling while the wheel is
+      // inside the section, and hand over to the overscroll gesture only once
+      // the wheel reaches the section edge.
+      const direction: OverscrollDirection = e.deltaY > 0 ? "next" : "prev";
+      if (!this.isAtSectionEdge(direction)) {
+        if (this.overscroll.currentPhase !== "idle") {
+          this.overscroll.reset();
+          debug("[EpubOverscroll] scroll resumed, reset");
         }
-        if (this.cooldownTimer) window.clearTimeout(this.cooldownTimer);
-        this.cooldownTimer = window.setTimeout(() => {
-          this.overscrollState.phase = "idle";
-        }, 400);
+        return;
       }
-    } else {
-      this.overscrollState = { phase: "idle", accumulatedDelta: 0 };
+      debug(`[EpubOverscroll] at section edge, deltaY=${e.deltaY}`);
     }
+
+    // PAGES mode always overscrolls; SCROLL mode overscrolls at the section
+    // edges. In both cases foliate's next()/prev() naturally stop at the
+    // document boundaries.
+    e.preventDefault();
+    const trigger = this.overscroll.handleWheel(e.deltaY);
+    if (trigger === null) return;
+    this.turn(trigger);
+  }
+
+  private turn(direction: OverscrollDirection): void {
+    if (direction === "next") {
+      this.view.next().catch((err) => warn(`[EpubOverscroll] next() failed: ${err}`));
+    } else {
+      this.view.prev().catch((err) => warn(`[EpubOverscroll] prev() failed: ${err}`));
+    }
+  }
+
+  private turnViaOverscroll(direction: OverscrollDirection): void {
+    const delta = direction === "next" ? this.overscroll.threshold : -this.overscroll.threshold;
+    const trigger = this.overscroll.handleWheel(delta);
+    if (trigger === null) return;
+    this.turn(trigger);
+  }
+
+  private isAtSectionEdge(direction: OverscrollDirection): boolean {
+    const renderer = this.view.renderer;
+    if (!renderer || renderer.scrolled !== true) return false;
+    const start = Math.abs(renderer.containerPosition ?? NaN);
+    const viewSize = renderer.viewSize ?? NaN;
+    const size = renderer.size ?? NaN;
+    return shouldEngageScrolledOverscroll(start, viewSize, size, direction);
+  }
+
+  onOverscrollChange(cb: (feedback: OverscrollFeedback) => void): Unsubscribe {
+    return this.overscroll.subscribe(cb);
   }
 
   private applyReaderStyles(): void {
@@ -377,8 +486,22 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
   private bindLoadedContent(): void {
     for (const content of this.view.renderer?.getContents?.() ?? []) {
-      if (content.doc) this.forwardContentKeys(content.doc);
+      if (content.doc) {
+        this.forwardContentKeys(content.doc);
+        this.forwardContentWheel(content.doc);
+      }
     }
+  }
+
+  private forwardContentWheel(doc: Document): void {
+    const root = doc.documentElement;
+    if (root.getAttribute(FORWARDED_WHEEL_ATTRIBUTE) === "true") return;
+    root.setAttribute(FORWARDED_WHEEL_ATTRIBUTE, "true");
+    doc.addEventListener(
+      "wheel",
+      (event) => this.handleEpubWheel(event as WheelEvent),
+      { passive: false },
+    );
   }
 
   private forwardContentKeys(doc: Document): void {
@@ -422,5 +545,6 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     }
     this.positionListeners.clear();
     this.readyListeners.clear();
+    this.overscroll.dispose();
   }
 }

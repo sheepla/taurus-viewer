@@ -20,6 +20,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+dashmap = "6"
 
 # Type-safe IPC code generation
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
@@ -27,7 +28,7 @@ specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript", "derive"] }
 
 # PDF Rendering
-pdfium-render = "0.8"
+pdfium-render = { version = "0.8", features = ["sync"] }
 regex = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }

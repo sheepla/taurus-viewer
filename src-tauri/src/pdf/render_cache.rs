@@ -54,11 +54,11 @@ struct Inner {
 /// thin dispatcher that only calls into this service (architecture 2.5.2).
 pub struct PdfRenderService {
     inner: RwLock<Inner>,
-    sessions: Arc<RwLock<PdfSessionManager>>,
+    sessions: Arc<PdfSessionManager>,
 }
 
 impl PdfRenderService {
-    pub fn new(sessions: Arc<RwLock<PdfSessionManager>>) -> Self {
+    pub fn new(sessions: Arc<PdfSessionManager>) -> Self {
         Self {
             inner: RwLock::new(Inner {
                 cache: HashMap::new(),
@@ -167,8 +167,8 @@ impl PdfRenderService {
     }
 
     async fn render(&self, key: &CacheKey) -> Result<Vec<u8>, AppError> {
-        let sessions = self.sessions.read().await;
-        let session = sessions
+        let session = self
+            .sessions
             .get_session(&key.session_id)
             .ok_or_else(|| AppError::Pdf(format!("No PDF session for id: {}", key.session_id)))?;
         session.render_page_recolored(

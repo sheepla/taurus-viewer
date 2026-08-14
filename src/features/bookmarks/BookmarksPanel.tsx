@@ -154,6 +154,13 @@ export function BookmarksPanel() {
         <ul className="flex-1 overflow-y-auto">
           {records.map((record, index) => {
             const position = parseBookmarkPosition(record.page_position);
+            const label =
+              position && handle?.getBookmarkLabel
+                ? handle.getBookmarkLabel(position)
+                : null;
+            const heading =
+              label?.heading ??
+              (position ? bookmarkLabel(position, outlineNodes) : "Unknown position");
             const isSelected = index === selectedIndex;
             return (
               <li key={record.id}>
@@ -171,8 +178,13 @@ export function BookmarksPanel() {
                 >
                   <Star size={12} className="shrink-0 text-muted-foreground" />
                    <span className="min-w-0 flex-1 truncate text-left">
-                     {position ? bookmarkLabel(position, outlineNodes) : "Unknown position"}
+                     {heading}
                    </span>
+                  {label?.page ? (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {label.page}
+                    </span>
+                  ) : null}
                   <span
                     role="button"
                     tabIndex={0}

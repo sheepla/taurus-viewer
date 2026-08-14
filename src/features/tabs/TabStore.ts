@@ -45,6 +45,8 @@ interface TabState {
   activatePrev: () => void;
   reorderTabs: (sourceId: string, targetId: string) => void;
   setHandle: (id: string, handle: DocumentViewerHandle) => void;
+  /** Replaces the tab title with the document's metadata title. */
+  setTabTitle: (id: string, title: string) => void;
   /** Clears the pending restore state after the viewer applied it. */
   setTabRestored: (id: string) => void;
   /** Pops the most recently closed tab from the persistent stack and reopens it. */
@@ -61,7 +63,9 @@ function generateTabId(): string {
 function formatTitle(filePath: string): string {
   const normalizedPath = filePath.replace(/\\/g, "/");
   const parts = normalizedPath.split("/");
-  return parts[parts.length - 1] ?? filePath;
+  const filename = parts[parts.length - 1] ?? filePath;
+  // Fallback title: the file name without its extension.
+  return filename.replace(/\.[^./]+$/, "");
 }
 
 function resolveFormat(filePath: string): DocumentFormat {
@@ -73,7 +77,9 @@ function captureViewState(handle: DocumentViewerHandle): TabViewState {
   const position: DocumentPosition = handle.getCurrentPosition();
   const zoom = typeof handle.getZoom === "function" ? handle.getZoom() : 1.0;
   const viewMode = typeof handle.getViewMode === "function" ? handle.getViewMode() : "pages";
-  return { position, zoom, viewMode };
+  const columns =
+    typeof handle.getColumns === "function" ? handle.getColumns() : 1;
+  return { position, zoom, viewMode, columns };
 }
 
 export const useTabStore = create<TabState>((set, get) => ({
@@ -161,6 +167,14 @@ export const useTabStore = create<TabState>((set, get) => ({
   setHandle(id, handle) {
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, handle } : t)),
+    }));
+  },
+
+  setTabTitle(id, title) {
+    const trimmed = title.trim();
+    if (trimmed.length === 0) return;
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, title: trimmed } : t)),
     }));
   },
 

@@ -2,19 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
-import type { OutlineNode } from "../../shared/types";
+import type { DocumentPosition, OutlineNode } from "../../shared/types";
+import {
+  findOutlineIndexForPosition,
+  flattenOutline,
+} from "./outlinePosition";
 
-type VisibleOutlineNode = {
-  node: OutlineNode;
-  depth: number;
-};
-
-function flattenOutline(nodes: readonly OutlineNode[], depth = 0): VisibleOutlineNode[] {
-  return nodes.flatMap((node) => [
-    { node, depth },
-    ...flattenOutline(node.children, depth + 1),
-  ]);
-}
+const EMPTY_NODES: readonly OutlineNode[] = [];
 
 function OutlineItem({
   node,
@@ -31,10 +25,12 @@ function OutlineItem({
     <li>
       <button
         type="button"
+        tabIndex={-1}
         onClick={() => onSelect(node)}
         title={node.title}
         data-selected={isSelected ? "true" : undefined}
-        className={`flex h-7 w-full items-center gap-1.5 rounded px-2 text-xs transition-colors hover:bg-accent hover:text-accent-foreground ${isSelected ? "bg-accent font-semibold text-accent-foreground" : ""}`}
+        aria-current={isSelected ? "true" : undefined}
+        className={`flex h-7 w-full items-center gap-1.5 rounded px-2 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground ${isSelected ? "bg-accent font-semibold text-accent-foreground" : ""}`}
         style={{ paddingLeft: `${8 + depth * 12}px` }}
       >
         <span className="min-w-0 flex-1 truncate text-left">{node.title}</span>
@@ -46,6 +42,10 @@ function OutlineItem({
 /**
  * TREE-mode sidebar panel: lists the document's outline (bookmark tree for
  * PDFs, table of contents for EPUBs) and jumps to the selected entry.
+ *
+ * The panel div is the single tab stop; Tab and j/k/arrows move the same
+ * selection highlight (the only focus indicator). While the document is paged
+ * or scrolled, the selection follows the current reading position.
  */
 export function OutlinePanel({
   handle,
@@ -63,7 +63,7 @@ export function OutlinePanel({
     queryFn: async () => (handle ? handle.getOutline() : []),
     enabled: Boolean(handle),
   });
-  const nodes = query.data ?? [];
+  const nodes = query.data ?? EMPTY_NODES;
 
   useEffect(() => {
     if (handle) {
@@ -111,6 +111,29 @@ export function OutlinePanel({
       ?.querySelector<HTMLElement>('[data-selected="true"]')
       ?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
+
+  const selectedIndexRef = useRef(selectedIndex);
+  useEffect(() => {
+    selectedIndexRef.current = selectedIndex;
+  }, [selectedIndex]);
+
+  // Follow the current reading position: keep the matching outline entry
+  // selected while the document is paged or scrolled.
+  useEffect(() => {
+    if (!handle) return;
+    const apply = (position: DocumentPosition) => {
+      const index = findOutlineIndexForPosition(
+        flattenOutline(activeNodes),
+        position,
+      );
+      if (index !== null && index !== selectedIndexRef.current) {
+        selectedIndexRef.current = index;
+        setSelectedIndex(index);
+      }
+    };
+    apply(handle.getCurrentPosition());
+    return handle.onPositionChange(apply);
+  }, [handle, activeNodes]);
 
   if (!handle) return null;
 
@@ -161,6 +184,7 @@ export function OutlinePanel({
             onSelect={(entry) => {
               setSelectedIndex(index);
               handle.goToPosition(entry.destination);
+              panelRef.current?.focus();
             }}
           />
         ))}

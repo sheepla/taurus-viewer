@@ -3,7 +3,7 @@ import { Columns2, LayoutList, Minus, Plus, ScrollText, Settings, Square } from 
 import { useTabStore } from "@/features/tabs/TabStore";
 import { useSettingsModalStore } from "./settingsModalStore";
 import { ThemeToggle } from "./theme-toggle";
-import type { ViewMode } from "../shared/types";
+import type { ColumnCount, ViewMode } from "../shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +29,7 @@ export function HeaderBar() {
   const [viewMode, setViewModeState] = useState<ViewMode>(() =>
     handle?.getViewMode?.() ?? "scroll",
   );
-  const [columns, setColumnsState] = useState<number>(() =>
+  const [columns, setColumnsState] = useState<ColumnCount>(() =>
     handle?.getColumns?.() ?? 1,
   );
 
@@ -71,7 +71,7 @@ export function HeaderBar() {
     }
   }
 
-  function changeColumns(cols: number) {
+  function changeColumns(cols: ColumnCount) {
     if (!handle || typeof handle.setColumns !== "function") return;
     handle.setColumns(cols);
     setColumnsState(cols);
@@ -82,7 +82,7 @@ export function HeaderBar() {
   }
 
   function handleColumnsChange(value: string) {
-    changeColumns(Number(value));
+    changeColumns(Number(value) as ColumnCount);
   }
 
   const title = activeTab?.title ?? "TaurusViewer";

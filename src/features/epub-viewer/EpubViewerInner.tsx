@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { BookOpen } from "lucide-react";
 import { EpubViewerHandle } from "./EpubViewerHandle";
+import { OverscrollIndicator } from "../../components/OverscrollIndicator";
+import type { OverscrollFeedback } from "../../shared/overscroll";
 import { useTabStore } from "../tabs/TabStore";
 
 interface EpubViewerInnerProps {
@@ -14,6 +16,7 @@ export function EpubViewerInner({ tabId, filePath }: EpubViewerInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLButtonElement>(null);
   const setTabHandle = useTabStore((s) => s.setHandle);
+  const setTabTitle = useTabStore((s) => s.setTabTitle);
   const setTabRestored = useTabStore((s) => s.setTabRestored);
   const restoreState = useTabStore(
     (s) => s.tabs.find((t) => t.id === tabId)?.restoreState ?? null,
@@ -49,12 +52,26 @@ export function EpubViewerInner({ tabId, filePath }: EpubViewerInnerProps) {
   useEffect(() => {
     if (!handle) return;
     setTabHandle(tabId, handle);
+    const metadataTitle = handle.getTitle();
+    if (metadataTitle) setTabTitle(tabId, metadataTitle);
     if (restoreState) {
       handle.restore(restoreState);
       setTabRestored(tabId);
     }
     return () => handle.dispose();
-  }, [handle, tabId, setTabHandle, setTabRestored, restoreState]);
+  }, [handle, tabId, setTabHandle, setTabTitle, setTabRestored, restoreState]);
+
+  const [overscroll, setOverscroll] = useState<OverscrollFeedback>({
+    active: false,
+    direction: "next",
+    progress: 0,
+    slow: false,
+  });
+
+  useEffect(() => {
+    if (!handle) return;
+    return handle.onOverscrollChange(setOverscroll);
+  }, [handle]);
 
   return (
     <div
@@ -73,6 +90,7 @@ export function EpubViewerInner({ tabId, filePath }: EpubViewerInnerProps) {
         className="absolute -left-px -top-px h-px w-px overflow-hidden opacity-0"
       />
       <div ref={containerRef} className="flex-1 w-full h-full min-h-0 flex flex-col" />
+      <OverscrollIndicator feedback={overscroll} />
       {viewerQuery.isPending && (
         <div className="absolute inset-0 flex items-center justify-center bg-background text-muted-foreground text-sm">
           <div className="flex flex-col items-center gap-2">

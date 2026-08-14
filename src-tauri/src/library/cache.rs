@@ -37,6 +37,15 @@ pub struct DbCache {
     pool: SqlitePool,
 }
 
+/// A library entry that may still need a thumbnail to be (re)generated.
+#[derive(Debug, FromRow)]
+pub struct ThumbnailCandidate {
+    pub entry_id: i64,
+    pub path: String,
+    pub format: String,
+    pub thumbnail_path: Option<String>,
+}
+
 /// A closed-tab entry popped via `tab_pop_closed`.
 #[derive(Debug, serde::Serialize, serde::Deserialize, FromRow, Type)]
 pub struct ClosedTabRecord {
@@ -74,23 +83,41 @@ pub struct UpsertResult {
     pub changed: bool,
 }
 
+/// Outcome of registering a library folder.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Type)]
+pub enum AddFolderOutcome {
+    /// The folder was newly inserted; carries the new folder id.
+    Created(#[specta(type = i32)] i64),
+    /// The folder was already registered; carries the existing folder id.
+    AlreadyExists(#[specta(type = i32)] i64),
+}
+
 impl DbCache {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
-    pub async fn add_folder(&self, path: &Path) -> Result<i64, AppError> {
+    pub async fn add_folder(&self, path: &Path) -> Result<AddFolderOutcome, AppError> {
         let path_str = path.to_string_lossy();
-        let now = chrono::Utc::now().to_rfc3339();
 
-        let res =
-            sqlx::query("INSERT OR IGNORE INTO library_folders (path, added_at) VALUES (?, ?)")
+        let existing: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM library_folders WHERE path = ?")
                 .bind(path_str.as_ref())
-                .bind(now)
-                .execute(&self.pool)
+                .fetch_optional(&self.pool)
                 .await?;
 
-        Ok(res.last_insert_rowid())
+        if let Some(id) = existing {
+            return Ok(AddFolderOutcome::AlreadyExists(id));
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let res = sqlx::query("INSERT INTO library_folders (path, added_at) VALUES (?, ?)")
+            .bind(path_str.as_ref())
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(AddFolderOutcome::Created(res.last_insert_rowid()))
     }
 
     pub async fn remove_folder(&self, path: &Path) -> Result<(), AppError> {
@@ -233,6 +260,33 @@ impl DbCache {
             .await?;
 
         Ok(())
+    }
+
+    /// Lists the non-error entries of a folder that are thumbnail backfill
+    /// candidates. Whether a thumbnail is actually missing (NULL or the cached
+    /// PNG no longer exists) is decided by the caller.
+    pub async fn list_entries_needing_thumbnails(
+        &self,
+        folder_id: i64,
+    ) -> Result<Vec<ThumbnailCandidate>, AppError> {
+        let rows = sqlx::query_as::<_, ThumbnailCandidate>(
+            "SELECT id AS entry_id, path, format, thumbnail_path FROM library_entries WHERE folder_id = ? AND status != 'error'",
+        )
+        .bind(folder_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    /// Returns the IDs of every library entry, used to prune thumbnail files
+    /// whose entry has been removed from the library.
+    pub async fn list_entry_ids(&self) -> Result<Vec<i64>, AppError> {
+        let rows = sqlx::query_scalar::<_, i64>("SELECT id FROM library_entries")
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows)
     }
 
     pub async fn search_library(&self, query: &str) -> Result<Vec<LibraryEntry>, AppError> {
@@ -488,5 +542,100 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cache.load_tab_sessions().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn add_folder_duplicate_returns_already_exists() {
+        let cache = test_cache().await;
+
+        let first = cache.add_folder(Path::new("/dup")).await.unwrap();
+        assert!(matches!(first, AddFolderOutcome::Created(_)));
+
+        let second = cache.add_folder(Path::new("/dup")).await.unwrap();
+        assert!(matches!(second, AddFolderOutcome::AlreadyExists(_)));
+
+        match (first, second) {
+            (AddFolderOutcome::Created(first_id), AddFolderOutcome::AlreadyExists(second_id)) => {
+                assert_eq!(first_id, second_id);
+            }
+            _ => panic!("unexpected outcomes"),
+        }
+    }
+
+    #[tokio::test]
+    async fn thumbnail_candidates_exclude_error_entries() {
+        let cache = test_cache().await;
+        let folder_id = match cache
+            .add_folder(Path::new("/books"))
+            .await
+            .expect("add folder")
+        {
+            AddFolderOutcome::Created(id) => id,
+            AddFolderOutcome::AlreadyExists(_) => panic!("expected a new folder"),
+        };
+
+        cache
+            .upsert_entry(
+                folder_id,
+                Path::new("/books/a.pdf"),
+                "pdf",
+                "A",
+                100,
+                1,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let b = cache
+            .upsert_entry(
+                folder_id,
+                Path::new("/books/b.pdf"),
+                "pdf",
+                "B",
+                100,
+                1,
+                None,
+            )
+            .await
+            .unwrap();
+        cache
+            .update_thumbnail(b.entry_id, Path::new("/cache/2.png"))
+            .await
+            .unwrap();
+
+        cache
+            .upsert_entry(
+                folder_id,
+                Path::new("/books/c.epub"),
+                "epub",
+                "C",
+                100,
+                1,
+                Some("boom"),
+            )
+            .await
+            .unwrap();
+
+        let candidates = cache
+            .list_entries_needing_thumbnails(folder_id)
+            .await
+            .unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|c| c.format != "error"));
+        let a = candidates
+            .iter()
+            .find(|c| c.path == "/books/a.pdf")
+            .expect("a.pdf listed");
+        assert!(a.thumbnail_path.is_none());
+        let b_candidate = candidates
+            .iter()
+            .find(|c| c.path == "/books/b.pdf")
+            .expect("b.pdf listed");
+        assert_eq!(b_candidate.thumbnail_path.as_deref(), Some("/cache/2.png"));
+
+        let ids = cache.list_entry_ids().await.unwrap();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&b.entry_id));
     }
 }
