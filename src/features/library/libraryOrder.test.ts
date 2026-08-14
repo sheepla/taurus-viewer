@@ -4,6 +4,7 @@ import {
   flattenLibraryOrder,
   folderName,
   groupEntriesByFolder,
+  groupKeyFor,
   moveFocusIndex,
 } from "./libraryOrder";
 
@@ -87,6 +88,18 @@ describe("flattenLibraryOrder", () => {
       "a2",
       "b1",
     ]);
+  });
+});
+
+describe("groupKeyFor", () => {
+  it("returns the folder id string for a known folder", () => {
+    const folders = [folder(1, "/a"), folder(2, "/b")];
+    expect(groupKeyFor(entry(10, 2, "b1"), folders)).toBe("2");
+  });
+
+  it("returns 'ungrouped' when the entry does not belong to a known folder", () => {
+    const folders = [folder(1, "/a")];
+    expect(groupKeyFor(entry(99, 7, "orphan"), folders)).toBe("ungrouped");
   });
 });
 

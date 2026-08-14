@@ -43,6 +43,14 @@ export function flattenLibraryOrder(
   return groupEntriesByFolder(folders, entries).flatMap((group) => group.entries);
 }
 
+export function groupKeyFor(
+  entry: LibraryEntry,
+  folders: LibraryFolder[],
+): string {
+  const folder = folders.find((f) => f.id === entry.folder_id);
+  return folder ? String(folder.id) : "ungrouped";
+}
+
 export type FocusDirection = "up" | "down" | "left" | "right";
 
 export function moveFocusIndex(
