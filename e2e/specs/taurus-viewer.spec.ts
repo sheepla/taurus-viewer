@@ -169,6 +169,14 @@ describe("TaurusViewer E2E Test Suite", () => {
     });
   }
 
+  async function pdfScrollTop(): Promise<number> {
+    return browser.execute(() => {
+      const first = document.querySelector('[data-page-index="0"]');
+      const container = first?.closest(".overflow-auto") as HTMLElement | null;
+      return container?.scrollTop ?? -1;
+    });
+  }
+
   async function getContainerPosition(): Promise<number> {
     return browser.execute(() => {
       const v = document.querySelector("foliate-view") as any;
@@ -650,6 +658,87 @@ describe("TaurusViewer E2E Test Suite", () => {
         timeout: 10000,
         timeoutMsg: "PAGES-mode k did not go back a page",
       },
+    );
+  });
+
+  it("should open the command palette via the palette button", async () => {
+    const paletteBtn = await $('button[aria-label="Open command palette"]');
+    await paletteBtn.click();
+    const paletteInput = await $('input[placeholder="Search open tabs or library documents..."]');
+    await expect(paletteInput).toBeDisplayed();
+  });
+
+  it("should open help via the help button and scroll it instead of the document", async () => {
+    await openPdf();
+    // Scroll the document a little so its position can be compared later.
+    await browser.keys(["j"]);
+    await browser.waitUntil(
+      async () => (await pdfScrollTop()) > 0,
+      { timeout: 5000, timeoutMsg: "j did not scroll the PDF document" },
+    );
+    const documentScrollBefore = await pdfScrollTop();
+
+    const helpBtn = await $('button[aria-label="Help"]');
+    await helpBtn.click();
+    await $("*=Keyboard shortcuts").waitForDisplayed({ timeout: 5000 });
+
+    // G scrolls the help content to its bottom.
+    await browser.keys(["G"]);
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(() => {
+          const el = document.querySelector("[data-help-scroll]");
+          return el ? (el as HTMLElement).scrollTop : -1;
+        })) > 0,
+      { timeout: 5000, timeoutMsg: "G did not scroll the help content" },
+    );
+
+    // The document must not have moved while the help modal was open.
+    expect(await pdfScrollTop()).toBe(documentScrollBefore);
+
+    // Close help and confirm the document scrolls again.
+    await browser.keys(["Escape"]);
+    await browser.waitUntil(
+      async () => !(await $("*=Keyboard shortcuts").isExisting()),
+      { timeout: 5000, timeoutMsg: "help modal did not close on Escape" },
+    );
+    await browser.keys(["j"]);
+    await browser.waitUntil(
+      async () => (await pdfScrollTop()) > documentScrollBefore,
+      { timeout: 5000, timeoutMsg: "document did not resume scrolling after help closed" },
+    );
+  });
+
+  it("should jump to the first/last page with g/G in PDF PAGES mode", async () => {
+    await openPdf();
+    await browser.keys(["s"]);
+    await browser.waitUntil(
+      async () => (await statusBarText()).includes("pages"),
+      { timeout: 5000, timeoutMsg: "s did not switch to PAGES mode" },
+    );
+    await browser.keys(["G"]);
+    await browser.waitUntil(
+      async () => (await statusBarText()).includes("Page 12 / 12"),
+      { timeout: 10000, timeoutMsg: "G did not jump to the last page in PAGES mode" },
+    );
+    await browser.keys(["g"]);
+    await browser.waitUntil(
+      async () => (await statusBarText()).includes("Page 1 / 12"),
+      { timeout: 10000, timeoutMsg: "g did not jump to the first page in PAGES mode" },
+    );
+  });
+
+  it("should go to the top/bottom of a PDF with g/G in SCROLL mode", async () => {
+    await openPdf();
+    await browser.keys(["G"]);
+    await browser.waitUntil(
+      async () => (await statusBarText()).includes("Page 12 / 12"),
+      { timeout: 10000, timeoutMsg: "G did not scroll to the document bottom" },
+    );
+    await browser.keys(["g"]);
+    await browser.waitUntil(
+      async () => (await statusBarText()).includes("Page 1 / 12"),
+      { timeout: 10000, timeoutMsg: "g did not scroll to the document top" },
     );
   });
 });

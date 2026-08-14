@@ -16,4 +16,9 @@ export const KEYBINDINGS: readonly KeybindingEntry[] = [
   { key: "t", action: "Open outline", mode: "NORMAL" },
   { key: "/", action: "Search in document", mode: "NORMAL" },
   { key: "y", action: "Copy selection", mode: "VISUAL" },
+  { key: "j/k", action: "Scroll down/up", mode: "NORMAL" },
+  { key: "d/u", action: "Scroll half page down/up", mode: "NORMAL" },
+  { key: "f/b", action: "Scroll full page down/up", mode: "NORMAL" },
+  { key: "g/G", action: "Go to top/bottom (or first/last page)", mode: "NORMAL" },
+  { key: "Home/End", action: "Go to top/bottom (or first/last page)", mode: "NORMAL" },
 ];

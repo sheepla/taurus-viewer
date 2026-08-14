@@ -20,7 +20,7 @@ export function HelpModal() {
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>Keyboard shortcuts</DialogTitle></DialogHeader>
-        <div className="max-h-96 overflow-y-auto text-sm">
+        <div data-help-scroll className="max-h-96 overflow-y-auto text-sm">
           {KEYBINDINGS.map((binding) => (
             <div key={`${binding.mode}-${binding.key}`} className="grid grid-cols-[7rem_1fr] gap-3 border-b py-2 last:border-0">
               <code>{binding.key}</code>

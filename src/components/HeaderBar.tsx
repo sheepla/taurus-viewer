@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
-import { Columns2, LayoutList, Minus, Plus, ScrollText, Settings, Square } from "lucide-react";
+import { CircleHelp, Columns2, Command, LayoutList, Minus, Plus, ScrollText, Settings, Square } from "lucide-react";
 import { useTabStore } from "@/features/tabs/TabStore";
 import { useSettingsModalStore } from "./settingsModalStore";
+import { useCommandPaletteStore } from "@/features/command-mode/CommandPalette";
+import { useHelpModalStore } from "./HelpModal";
 import { ThemeToggle } from "./theme-toggle";
 import type { ColumnCount, ViewMode } from "../shared/types";
 import {
@@ -93,6 +95,17 @@ export function HeaderBar() {
         {title}
       </span>
       <div className="flex shrink-0 items-center gap-2">
+        {/* Command Palette (leftmost) */}
+        <button
+          type="button"
+          onClick={() => useCommandPaletteStore.getState().open()}
+          aria-label="Open command palette"
+          title="Command palette (Ctrl+K)"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <Command size={15} />
+        </button>
+
         {/* View Mode Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -202,6 +215,17 @@ export function HeaderBar() {
 
         {/* Theme Toggle (Right end) */}
         <ThemeToggle />
+
+        {/* Help (rightmost) */}
+        <button
+          type="button"
+          onClick={() => useHelpModalStore.getState().open()}
+          aria-label="Help"
+          title="Help (?)"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <CircleHelp size={15} />
+        </button>
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ import { useCommandPaletteStore } from "../command-mode/CommandPalette";
 import { useTabStore } from "../tabs/TabStore";
 import { useUiModeStore } from "./uiModeStore";
 import { makePagePosition } from "../bookmarks/bookmarks";
-import type { DocumentViewerHandle } from "../../shared/viewer-handle";
+import type { DocumentViewerHandle, PanDirection } from "../../shared/viewer-handle";
 import type { ColumnCount, PageTurn, ViewMode } from "../../shared/types";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import {
@@ -25,6 +25,22 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
+/** Maps a normalized key name to its continuous pan direction, or null. */
+const PAN_DIRECTION_KEYS: Record<string, PanDirection> = {
+  j: "down",
+  k: "up",
+  h: "left",
+  l: "right",
+  arrowdown: "down",
+  arrowup: "up",
+  arrowleft: "left",
+  arrowright: "right",
+};
+
+function panDirectionForKey(key: string): PanDirection | null {
+  return PAN_DIRECTION_KEYS[key] ?? null;
 }
 
 function resolveFormat(filePath: string): "pdf" | "epub" {
@@ -69,7 +85,6 @@ function toggleColumns(handle: DocumentViewerHandle): void {
   const next: ColumnCount = current === 1 ? 2 : 1;
   if (typeof handle.setColumns === "function") {
     handle.setColumns(next);
-    toast.info(`Columns: ${next}`);
   }
 }
 
@@ -110,8 +125,12 @@ export function useKeyDispatcher(): void {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const openHelp = useHelpModalStore((s) => s.open);
+  const isHelpOpen = useHelpModalStore((s) => s.isOpen);
 
   useEffect(() => {
+    // The handle currently holding an active pan gesture, stopped on keyup.
+    let activePan: DocumentViewerHandle | null = null;
+
     const handler = (e: KeyboardEvent) => {
       if (isCommandBarOpen || isPaletteOpen) return;
       if (isEditableTarget(e.target)) return;
@@ -120,6 +139,13 @@ export function useKeyDispatcher(): void {
       if (e.ctrlKey || e.metaKey) {
         const store = useTabStore.getState();
         const key = e.key.toLowerCase();
+
+        // Keep the WebView's native print dialog (Ctrl+P) from appearing; a
+        // print feature may be added later, but not yet.
+        if (key === "p") {
+          e.preventDefault();
+          return;
+        }
 
         if (key === "w") {
           e.preventDefault();
@@ -197,6 +223,62 @@ export function useKeyDispatcher(): void {
       const handle = getActiveHandle();
       const key = e.key.toLowerCase();
 
+      // While the help modal is open, scroll keys target the help content and
+      // every other key is swallowed so the underlying viewer never moves.
+      if (isHelpOpen) {
+        const helpEl = document.querySelector<HTMLElement>("[data-help-scroll]");
+        const scroll = (delta: number) => {
+          if (helpEl) helpEl.scrollTop += delta;
+        };
+        if (key === "j" || key === "arrowdown") {
+          e.preventDefault();
+          scroll(240);
+          return;
+        }
+        if (key === "k" || key === "arrowup") {
+          e.preventDefault();
+          scroll(-240);
+          return;
+        }
+        if (key === "d") {
+          e.preventDefault();
+          scroll(480);
+          return;
+        }
+        if (key === "u") {
+          e.preventDefault();
+          scroll(-480);
+          return;
+        }
+        if (key === "f" || key === "b") {
+          e.preventDefault();
+          scroll(key === "f" ? 720 : -720);
+          return;
+        }
+        if (key === " " || key === "pagedown") {
+          e.preventDefault();
+          scroll(e.shiftKey ? -720 : 720);
+          return;
+        }
+        if (key === "pageup") {
+          e.preventDefault();
+          scroll(-720);
+          return;
+        }
+        if (e.key === "g" || key === "home") {
+          e.preventDefault();
+          if (helpEl) helpEl.scrollTop = 0;
+          return;
+        }
+        if (e.key === "G" || key === "end") {
+          e.preventDefault();
+          if (helpEl) helpEl.scrollTop = helpEl.scrollHeight;
+          return;
+        }
+        e.preventDefault();
+        return;
+      }
+
       if (e.key === "~") {
         e.preventDefault();
         useTabStore.getState().activateTab(null);
@@ -273,6 +355,18 @@ export function useKeyDispatcher(): void {
       // open the focused document with Enter. The focused group is expanded
       // automatically so the target card is always visible.
       if (!handle) {
+        if (e.key === "g" || key === "home") {
+          e.preventDefault();
+          const list = document.querySelector<HTMLElement>("[data-library-scroll]");
+          if (list) list.scrollTop = 0;
+          return;
+        }
+        if (e.key === "G" || key === "end") {
+          e.preventDefault();
+          const list = document.querySelector<HTMLElement>("[data-library-scroll]");
+          if (list) list.scrollTop = list.scrollHeight;
+          return;
+        }
         const folders =
           queryClient.getQueryData<LibraryFolder[]>(["library", "folders"]) ?? [];
         const entries =
@@ -329,6 +423,38 @@ export function useKeyDispatcher(): void {
           }
         }
         return;
+      }
+
+      if (e.key === "g" || key === "home") {
+        e.preventDefault();
+        handle.navigate({ kind: "edge", edge: "start" });
+        return;
+      }
+      if (e.key === "G" || key === "end") {
+        e.preventDefault();
+        handle.navigate({ kind: "edge", edge: "end" });
+        return;
+      }
+
+      // Hold-to-pan: the first keydown starts a smooth scroll loop and the OS
+      // auto-repeat is suppressed (the loop drives the scrolling). If the
+      // gesture cannot start (e.g. page-turn mode), fall through to the
+      // one-shot actions below.
+      const panDirection = panDirectionForKey(key);
+      if (panDirection) {
+        if (e.repeat) {
+          if (activePan === handle) {
+            e.preventDefault();
+            return;
+          }
+        } else if (handle.startPan) {
+          const started = handle.startPan(panDirection);
+          activePan = started ? handle : null;
+          if (started) {
+            e.preventDefault();
+            return;
+          }
+        }
       }
 
       if (key === "j" || key === "arrowdown") {
@@ -419,9 +545,32 @@ export function useKeyDispatcher(): void {
       handle.navigate(turn);
     };
 
+    const keyUpHandler = (e: KeyboardEvent) => {
+      if (!activePan) return;
+      if (panDirectionForKey(e.key.toLowerCase())) {
+        activePan.stopPan?.();
+        activePan = null;
+      }
+    };
+
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isCommandBarOpen, isPaletteOpen, currentMode, setMode, navigate, openHelp]);
+    window.addEventListener("keyup", keyUpHandler);
+    return () => {
+      activePan?.stopPan?.();
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("keyup", keyUpHandler);
+    };
+  }, [isCommandBarOpen, isPaletteOpen, isHelpOpen, currentMode, setMode, navigate, openHelp]);
+
+  // Suppress the WebView's native browser context menu (right-click). The
+  // app does not use it; a dedicated context menu may be added later.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
 
   useEffect(() => {
     const handler = (event: WheelEvent) => {

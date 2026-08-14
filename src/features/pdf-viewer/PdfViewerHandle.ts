@@ -16,6 +16,7 @@ import type {
   PageTarget,
   PageTurn,
   ScrollDelta,
+  ScrollEdge,
   SearchHit,
   TabViewState,
   Unsubscribe,
@@ -24,8 +25,14 @@ import type {
 } from "../../shared/types";
 import type {
   DocumentViewerHandle,
+  PanDirection,
   ViewerCapabilities,
 } from "../../shared/viewer-handle";
+
+/** Initial vertical step size (px) for the j/k hold-to-pan gesture. */
+const PAN_VERTICAL_STEP = 240;
+/** Continuous pan speed in px/s while a pan key is held. */
+const PAN_VELOCITY = 1200;
 
 export class PdfViewerHandle implements DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities = {
@@ -53,6 +60,9 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   private readonly overscroll = new OverscrollController(OVERSCROLL_SCROLL_TUNING);
   /** Last observed scroll position, used to detect a blocked document edge. */
   private lastScrollPos: number | null = null;
+  /** Active smooth pan loop (while a pan key is held). */
+  private panLoop: { raf: number; last: number; direction: PanDirection } | null =
+    null;
 
   /** Containers that already have their scroll/wheel listeners attached. */
   private static readonly attachedContainers = new WeakSet<HTMLElement>();
@@ -135,7 +145,59 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     return this.viewMode;
   }
 
-  navigate(target: PageTarget | ScrollDelta | PageTurn): void {
+  startPan(direction: PanDirection): boolean {
+    if (this.viewMode !== "scroll") return false;
+    if (
+      (direction === "left" || direction === "right") &&
+      !this.canPanHorizontally()
+    ) {
+      return false;
+    }
+    const container = this.scrollContainer;
+    if (!container) return false;
+
+    this.stopPan();
+    const horizontal = direction === "left" || direction === "right";
+    const step = horizontal
+      ? Math.max(240, container.clientWidth * 0.75)
+      : PAN_VERTICAL_STEP;
+    const axis = horizontal ? "left" : "top";
+    const sign = direction === "left" || direction === "up" ? -1 : 1;
+    container.scrollBy({ [axis]: sign * step, behavior: "auto" });
+
+    const last = performance.now();
+    this.panLoop = {
+      raf: requestAnimationFrame((now) => this.panFrame(direction, last, now)),
+      last,
+      direction,
+    };
+    return true;
+  }
+
+  private panFrame(direction: PanDirection, last: number, now: number): void {
+    const loop = this.panLoop;
+    const container = this.scrollContainer;
+    if (!loop || !container) return;
+    const dt = Math.min(50, now - last);
+    const horizontal = direction === "left" || direction === "right";
+    const axis = horizontal ? "left" : "top";
+    const sign = direction === "left" || direction === "up" ? -1 : 1;
+    container.scrollBy({
+      [axis]: (sign * PAN_VELOCITY * dt) / 1000,
+      behavior: "auto",
+    });
+    loop.last = now;
+    loop.raf = requestAnimationFrame((t) => this.panFrame(direction, now, t));
+  }
+
+  stopPan(): void {
+    if (this.panLoop) {
+      cancelAnimationFrame(this.panLoop.raf);
+      this.panLoop = null;
+    }
+  }
+
+  navigate(target: PageTarget | ScrollDelta | PageTurn | ScrollEdge): void {
     debug(`[PdfViewerHandle] navigate: ${JSON.stringify(target)}`);
     switch (target.kind) {
       case "page":
@@ -151,6 +213,25 @@ export class PdfViewerHandle implements DocumentViewerHandle {
           }
         } else {
           this.scrollContainer?.scrollBy({ top: target.deltaY, behavior: "auto" });
+        }
+        break;
+      case "edge":
+        if (this.viewMode === "pages") {
+          this.goToPage(target.edge === "start" ? 0 : this.pageCount - 1);
+        } else {
+          const container = this.scrollContainer;
+          if (container) {
+            container.scrollTop =
+              target.edge === "start" ? 0 : container.scrollHeight;
+          }
+          // The scroll event fires before the windowed render mounts the pages
+          // near the new position, so its onScroll handler would otherwise
+          // report a stale page. Pin the current page directly.
+          const edgePage = target.edge === "start" ? 0 : this.pageCount - 1;
+          if (edgePage !== this.currentPage) {
+            this.currentPage = edgePage;
+            this.notifyPositionChange();
+          }
         }
         break;
       case "prev":
@@ -412,13 +493,18 @@ export class PdfViewerHandle implements DocumentViewerHandle {
     if (pages.length === 0) return;
 
     const containerTop = container.getBoundingClientRect().top;
+    const viewport = container.clientHeight || 1;
     let best = this.currentPage;
     let bestDistance = Infinity;
     pages.forEach((page) => {
+      const index = Number.parseInt(page.dataset.pageIndex ?? "0", 10);
       const distance = Math.abs(page.getBoundingClientRect().top - containerTop);
-      if (distance < bestDistance) {
+      // Only trust pages within the current viewport window. Pages far away
+      // are leftovers from a windowed render that has not caught up after a
+      // large jump; trusting them would report a stale page.
+      if (distance < viewport && distance < bestDistance) {
         bestDistance = distance;
-        best = Number.parseInt(page.dataset.pageIndex ?? "0", 10);
+        best = index;
       }
     });
 
@@ -436,6 +522,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   }
 
   dispose(): void {
+    this.stopPan();
     if (this.sessionId) {
       invoke("pdf_close", { sessionId: this.sessionId }).catch(console.error);
       this.sessionId = null;

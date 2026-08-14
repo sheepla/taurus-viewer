@@ -179,6 +179,7 @@ describe("PdfViewerHandle", () => {
   it("reports the true page index when windowed pages do not start at zero", async () => {
     const handle = await makeHandle(20);
     const container = document.createElement("div");
+    Object.defineProperty(container, "clientHeight", { configurable: true, value: 1000 });
     handle.attachScrollContainer(container);
 
     const positions: DocumentPosition[] = [];
@@ -199,5 +200,86 @@ describe("PdfViewerHandle", () => {
     container.dispatchEvent(new Event("scroll"));
     expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 10 });
     expect(positions[positions.length - 1]).toMatchObject({ pageIndex: 10 });
+  });
+
+  it("scrolls to the top/bottom edges in SCROLL mode", async () => {
+    const handle = await makeHandle();
+    const el = document.createElement("div");
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: 4000 });
+    const scrollTopSetter = vi.fn();
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      set: scrollTopSetter,
+      get: () => 0,
+    });
+    handle.attachScrollContainer(el);
+
+    handle.navigate({ kind: "edge", edge: "end" });
+    expect(scrollTopSetter).toHaveBeenLastCalledWith(4000);
+    handle.navigate({ kind: "edge", edge: "start" });
+    expect(scrollTopSetter).toHaveBeenLastCalledWith(0);
+  });
+
+  it("jumps to the first/last page in PAGES mode via edge navigation", async () => {
+    const handle = await makeHandle();
+    handle.setViewMode("pages");
+    handle.navigate({ kind: "edge", edge: "end" });
+    expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 4 });
+    handle.navigate({ kind: "edge", edge: "start" });
+    expect(handle.getCurrentPosition()).toMatchObject({ pageIndex: 0 });
+  });
+
+  it("does not start a pan in PAGES mode", async () => {
+    const handle = await makeHandle();
+    handle.setViewMode("pages");
+    const el = document.createElement("div");
+    handle.attachScrollContainer(el);
+    expect(handle.startPan?.("down")).toBe(false);
+    expect(handle.startPan?.("right")).toBe(false);
+  });
+
+  it("starts a horizontal pan only when the container overflows", async () => {
+    const handle = await makeHandle();
+    const overflow = document.createElement("div");
+    Object.defineProperty(overflow, "scrollWidth", { configurable: true, value: 2000 });
+    Object.defineProperty(overflow, "clientWidth", { configurable: true, value: 800 });
+    const scrollBy = vi.fn();
+    (overflow as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
+    handle.attachScrollContainer(overflow);
+    expect(handle.startPan?.("right")).toBe(true);
+
+    const noOverflow = document.createElement("div");
+    const scrollBy2 = vi.fn();
+    (noOverflow as unknown as { scrollBy: unknown }).scrollBy = scrollBy2;
+    handle.attachScrollContainer(noOverflow);
+    expect(handle.startPan?.("right")).toBe(false);
+  });
+
+  it("starts and stops a smooth vertical pan in SCROLL mode", async () => {
+    vi.useFakeTimers();
+    try {
+      const handle = await makeHandle();
+      const el = document.createElement("div");
+      const scrollBy = vi.fn();
+      (el as unknown as { scrollBy: unknown }).scrollBy = scrollBy;
+      handle.attachScrollContainer(el);
+
+      expect(handle.startPan?.("down")).toBe(true);
+      const callsAfterStart = scrollBy.mock.calls.length;
+      expect(callsAfterStart).toBeGreaterThanOrEqual(1);
+
+      vi.advanceTimersByTime(200);
+      const callsAfterAdvance = scrollBy.mock.calls.length;
+      expect(callsAfterAdvance).toBeGreaterThan(callsAfterStart);
+      const topDeltas = scrollBy.mock.calls.map((c) => c[0].top);
+      expect(topDeltas.every((d) => typeof d === "number" && d >= 0)).toBe(true);
+
+      handle.stopPan?.();
+      const callsAfterStop = scrollBy.mock.calls.length;
+      vi.advanceTimersByTime(200);
+      expect(scrollBy.mock.calls.length).toBe(callsAfterStop);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

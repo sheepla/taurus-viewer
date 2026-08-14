@@ -12,6 +12,7 @@ import type {
   PageTarget,
   PageTurn,
   ScrollDelta,
+  ScrollEdge,
   SearchHit,
   TabViewState,
   Unsubscribe,
@@ -32,6 +33,7 @@ import {
 } from "../../shared/overscroll";
 import type {
   DocumentViewerHandle,
+  PanDirection,
   ViewerCapabilities,
 } from "../../shared/viewer-handle";
 
@@ -69,6 +71,10 @@ type FoliateView = View & {
 
 const FORWARDED_KEY_ATTRIBUTE = "data-taurus-key-forwarding";
 const FORWARDED_WHEEL_ATTRIBUTE = "data-taurus-wheel-forwarding";
+/** Initial vertical step size (px) for the j/k hold-to-pan gesture. */
+const EPUB_PAN_STEP = 240;
+/** Continuous pan speed in px/s while a pan key is held. */
+const EPUB_PAN_VELOCITY = 1200;
 const APP_KEYS = new Set([
   "ArrowDown",
   "ArrowLeft",
@@ -119,6 +125,9 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   private viewModeListeners: Set<(mode: ViewMode) => void> = new Set();
   private columnListeners: Set<(cols: ColumnCount) => void> = new Set();
   private readonly overscroll = new OverscrollController();
+  /** Active smooth pan loop (while a pan key is held). */
+  private panLoop: { raf: number; last: number; direction: PanDirection } | null =
+    null;
 
   constructor(private filePath: string) {
     this.view = document.createElement("foliate-view") as FoliateView;
@@ -166,7 +175,42 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     }
   }
 
-  navigate(target: PageTarget | ScrollDelta | PageTurn): void {
+  startPan(direction: PanDirection): boolean {
+    const renderer = this.view.renderer;
+    if (!renderer || renderer.scrolled !== true) return false;
+    if (direction === "left" || direction === "right") return false;
+    if (renderer.containerPosition === undefined) return false;
+    this.stopPan();
+    const sign = direction === "up" ? -1 : 1;
+    renderer.containerPosition += sign * EPUB_PAN_STEP;
+    const last = performance.now();
+    this.panLoop = {
+      raf: requestAnimationFrame((now) => this.panFrame(direction, last, now)),
+      last,
+      direction,
+    };
+    return true;
+  }
+
+  private panFrame(direction: PanDirection, last: number, now: number): void {
+    const loop = this.panLoop;
+    const renderer = this.view.renderer;
+    if (!loop || !renderer || renderer.containerPosition === undefined) return;
+    const dt = Math.min(50, now - last);
+    const sign = direction === "up" ? -1 : 1;
+    renderer.containerPosition += (sign * EPUB_PAN_VELOCITY * dt) / 1000;
+    loop.last = now;
+    loop.raf = requestAnimationFrame((t) => this.panFrame(direction, now, t));
+  }
+
+  stopPan(): void {
+    if (this.panLoop) {
+      cancelAnimationFrame(this.panLoop.raf);
+      this.panLoop = null;
+    }
+  }
+
+  navigate(target: PageTarget | ScrollDelta | PageTurn | ScrollEdge): void {
     debug(`[EpubViewerHandle] navigate: ${JSON.stringify(target)}`);
     console.log(`[EpubViewerHandle] NAVIGATE CALLED: ${JSON.stringify(target)}`);
     const renderer = this.view.renderer;
@@ -174,6 +218,18 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     switch (target.kind) {
       case "page":
         this.view.goTo({ fraction: target.index }).catch((err) => warn(`[EpubViewerHandle] goTo failed: ${err}`));
+        break;
+      case "edge":
+        if (scrolled) {
+          renderer!.containerPosition =
+            target.edge === "start"
+              ? 0
+              : Math.max(0, (renderer!.viewSize ?? 0) - (renderer!.size ?? 0));
+        } else {
+          this.view
+            .goTo({ fraction: target.edge === "start" ? 0 : 1 })
+            .catch((err) => warn(`[EpubViewerHandle] goTo failed: ${err}`));
+        }
         break;
       case "scroll":
         if (scrolled && renderer.containerPosition !== undefined) {
@@ -532,6 +588,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   }
 
   dispose(): void {
+    this.stopPan();
     try {
       if (this.view && typeof this.view.close === "function") {
         this.view.close();

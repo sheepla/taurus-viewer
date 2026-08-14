@@ -8,6 +8,7 @@ import type {
   PageTarget,
   PageTurn,
   ScrollDelta,
+  ScrollEdge,
   SearchHit,
   TabViewState,
   Unsubscribe,
@@ -19,6 +20,9 @@ import type {
  * Declares what a specific document format is capable of.
  * The common UI shell inspects this before issuing commands.
  */
+/** Continuous pan direction used while a pan key is held down. */
+export type PanDirection = "up" | "down" | "left" | "right";
+
 export interface ViewerCapabilities {
   /** Supported view modes. PDF: ["scroll","pages"], EPUB: ["pages"] */
   viewModes: ViewMode[];
@@ -37,7 +41,14 @@ export interface ViewerCapabilities {
 export interface DocumentViewerHandle {
   readonly capabilities: ViewerCapabilities;
 
-  navigate(target: PageTarget | ScrollDelta | PageTurn): void;
+  navigate(target: PageTarget | ScrollDelta | PageTurn | ScrollEdge): void;
+  /** Starts smooth continuous scrolling while a pan key is held. Returns
+   *  `true` if panning began for the given direction, or `false` when the
+   *  direction is not scrollable in the current mode (the caller then falls
+   *  back to its one-shot action, e.g. a page turn). */
+  startPan?(direction: PanDirection): boolean;
+  /** Stops the continuous scrolling started by `startPan`. */
+  stopPan?(): void;
   setZoom(level: ZoomLevel): void;
   getZoom?(): ZoomLevel;
   /** Calling with a mode outside capabilities.viewModes is a no-op + warning. */

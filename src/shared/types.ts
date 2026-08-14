@@ -5,6 +5,8 @@
 /** Jump to a specific page (0-indexed) or scroll by a delta amount. */
 export type PageTarget = { kind: "page"; index: number };
 export type ScrollDelta = { kind: "scroll"; deltaY: number };
+/** Jump to the first/last page (PAGES) or the top/bottom of the document (SCROLL). */
+export type ScrollEdge = { kind: "edge"; edge: "start" | "end" };
 /** Page turn commands understood by every viewer format. */
 export type PageTurn =
   | { kind: "prev" }
