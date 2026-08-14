@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitSpreadScale } from "./pdfLayout";
+import { fitSpreadScale, spreadRowLeft } from "./pdfLayout";
 
 describe("fitSpreadScale", () => {
   it("shrinks a spread that is wider than the viewport at 100%", () => {
@@ -20,5 +20,19 @@ describe("fitSpreadScale", () => {
 
   it("handles a spread wider than the available width at any zoom", () => {
     expect(fitSpreadScale(0.25, 2400, 1600)).toBeCloseTo(0.1667, 3);
+  });
+});
+
+describe("spreadRowLeft", () => {
+  it("centers a row narrower than the content width", () => {
+    expect(spreadRowLeft(800, 1600)).toBe(400);
+  });
+
+  it("left-aligns a row wider than the content width", () => {
+    expect(spreadRowLeft(2000, 1600)).toBe(0);
+  });
+
+  it("left-aligns a row exactly as wide as the content width", () => {
+    expect(spreadRowLeft(1600, 1600)).toBe(0);
   });
 });

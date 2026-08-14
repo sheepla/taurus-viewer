@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
-import { fitSpreadScale } from "./pdfLayout";
+import { fitSpreadScale, spreadRowLeft } from "./pdfLayout";
 import { OverscrollIndicator } from "../../components/OverscrollIndicator";
 import type { Config, PageDimensions } from "../../shared/bindings";
 import type { OverscrollFeedback } from "../../shared/overscroll";
@@ -472,25 +472,38 @@ export function PdfView({ tabId, filePath }: PdfViewProps) {
         </div>
       ) : (
         <div className="relative w-full shrink-0" style={{ height: `${totalHeight}px` }}>
-          {visibleSpreads.map((spread) => (
-            <div
-              key={spread.pages.map((p) => p.pageIndex).join("-")}
-              className="absolute left-0 right-0 flex justify-center"
-              style={{ top: `${spread.offset}px`, gap: SPREAD_INNER_GAP_PX }}
-            >
-              {spread.pages.map((page) => (
-                <PageItem
-                  key={page.pageIndex}
-                  sessionId={sessionId}
-                  page={page}
-                  pageCount={pageCount}
-                  invertColors={invertColors}
-                  searchQuery={searchQuery}
-                  dpr={dpr}
-                />
-              ))}
-            </div>
-          ))}
+          {visibleSpreads.map((spread) => {
+            const rowWidth =
+              spread.pages.reduce((sum, p) => sum + p.displayWidth, 0) +
+              (spread.pages.length - 1) * SPREAD_INNER_GAP_PX;
+            const contentWidth = Math.max(
+              1,
+              viewportWidth - SPREAD_OUTER_MARGIN_PX * 2,
+            );
+            return (
+              <div
+                key={spread.pages.map((p) => p.pageIndex).join("-")}
+                className="absolute flex"
+                style={{
+                  top: `${spread.offset}px`,
+                  left: `${spreadRowLeft(rowWidth, contentWidth)}px`,
+                  gap: SPREAD_INNER_GAP_PX,
+                }}
+              >
+                {spread.pages.map((page) => (
+                  <PageItem
+                    key={page.pageIndex}
+                    sessionId={sessionId}
+                    page={page}
+                    pageCount={pageCount}
+                    invertColors={invertColors}
+                    searchQuery={searchQuery}
+                    dpr={dpr}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
       <OverscrollIndicator feedback={overscroll} />

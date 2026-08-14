@@ -26,6 +26,26 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
 }
 
 :root {
@@ -83,4 +103,26 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+.document-scroll {
+  scrollbar-gutter: stable;
+}
+
+.document-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.document-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.document-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.document-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }

@@ -14,3 +14,12 @@ export function fitSpreadScale(
   const fit = Math.min(1, availableWidth / spreadWidth);
   return zoom * fit;
 }
+
+/**
+ * Horizontal offset of a spread row inside the scroll content area.
+ * A row wider than the content is left-aligned so its left edge stays
+ * reachable by scrolling; a narrower row is centered.
+ */
+export function spreadRowLeft(rowWidth: number, contentWidth: number): number {
+  return rowWidth < contentWidth ? (contentWidth - rowWidth) / 2 : 0;
+}

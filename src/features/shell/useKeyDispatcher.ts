@@ -11,8 +11,13 @@ import { makePagePosition } from "../bookmarks/bookmarks";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type { ColumnCount, PageTurn, ViewMode } from "../../shared/types";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
-import { flattenLibraryOrder, moveFocusIndex } from "../library/libraryOrder";
+import {
+  flattenLibraryOrder,
+  groupKeyFor,
+  moveFocusIndex,
+} from "../library/libraryOrder";
 import { useLibraryFocusStore } from "../library/libraryFocusStore";
+import { useLibraryAccordionStore } from "../library/libraryAccordionStore";
 import { useHelpModalStore } from "../../components/HelpModal";
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -31,12 +36,6 @@ function getActiveHandle(): DocumentViewerHandle | null {
   const state = useTabStore.getState();
   const tab = state.tabs.find((t) => t.id === state.activeTabId);
   return tab?.handle ?? null;
-}
-
-function gridColumns(grid: HTMLElement): number {
-  const value = getComputedStyle(grid).gridTemplateColumns;
-  const count = value.split(" ").filter(Boolean).length;
-  return count > 0 ? count : 1;
 }
 
 function scrollLibraryFocusIntoView(): void {
@@ -271,53 +270,62 @@ export function useKeyDispatcher(): void {
       }
 
       // Home screen: traverse the library grid with hjkl/cursor keys and
-      // open the focused document with Enter.
+      // open the focused document with Enter. The focused group is expanded
+      // automatically so the target card is always visible.
       if (!handle) {
-        const grid = document.querySelector<HTMLElement>("[data-library-grid]");
-        if (grid) {
-          const folders =
-            queryClient.getQueryData<LibraryFolder[]>(["library", "folders"]) ?? [];
-          const entries =
-            queryClient.getQueryData<LibraryEntry[]>(["library", "entries"]) ?? [];
-          const flat = flattenLibraryOrder(folders, entries);
-          if (flat.length > 0) {
-            const focusStore = useLibraryFocusStore.getState();
-            const current = Math.min(focusStore.focusedIndex ?? 0, flat.length - 1);
-            const columns = gridColumns(grid);
+        const folders =
+          queryClient.getQueryData<LibraryFolder[]>(["library", "folders"]) ?? [];
+        const entries =
+          queryClient.getQueryData<LibraryEntry[]>(["library", "entries"]) ?? [];
+        const flat = flattenLibraryOrder(folders, entries);
+        if (flat.length > 0) {
+          const focusStore = useLibraryFocusStore.getState();
+          const accordionStore = useLibraryAccordionStore.getState();
+          const current = Math.min(focusStore.focusedIndex ?? 0, flat.length - 1);
+          const columns = Math.max(1, focusStore.columns);
+          const reveal = (entry: LibraryEntry) =>
+            accordionStore.ensureOpen(groupKeyFor(entry, folders));
 
-            if (key === "j" || key === "arrowdown") {
-              e.preventDefault();
-              focusStore.setFocusedIndex(moveFocusIndex(current, "down", flat.length, columns));
-              scrollLibraryFocusIntoView();
-              return;
-            }
-            if (key === "k" || key === "arrowup") {
-              e.preventDefault();
-              focusStore.setFocusedIndex(moveFocusIndex(current, "up", flat.length, columns));
-              scrollLibraryFocusIntoView();
-              return;
-            }
-            if (key === "h" || key === "arrowleft") {
-              e.preventDefault();
-              focusStore.setFocusedIndex(moveFocusIndex(current, "left", flat.length, columns));
-              scrollLibraryFocusIntoView();
-              return;
-            }
-            if (key === "l" || key === "arrowright") {
-              e.preventDefault();
-              focusStore.setFocusedIndex(moveFocusIndex(current, "right", flat.length, columns));
-              scrollLibraryFocusIntoView();
-              return;
-            }
-            if (key === "enter") {
-              e.preventDefault();
-              const entry = flat[current];
-              useTabStore
-                .getState()
-                .openTab(entry.path, entry.format === "epub" ? "epub" : "pdf");
-              navigate({ to: "/" });
-              return;
-            }
+          if (key === "j" || key === "arrowdown") {
+            e.preventDefault();
+            const next = moveFocusIndex(current, "down", flat.length, columns);
+            reveal(flat[next]);
+            focusStore.setFocusedIndex(next);
+            scrollLibraryFocusIntoView();
+            return;
+          }
+          if (key === "k" || key === "arrowup") {
+            e.preventDefault();
+            const next = moveFocusIndex(current, "up", flat.length, columns);
+            reveal(flat[next]);
+            focusStore.setFocusedIndex(next);
+            scrollLibraryFocusIntoView();
+            return;
+          }
+          if (key === "h" || key === "arrowleft") {
+            e.preventDefault();
+            const next = moveFocusIndex(current, "left", flat.length, columns);
+            reveal(flat[next]);
+            focusStore.setFocusedIndex(next);
+            scrollLibraryFocusIntoView();
+            return;
+          }
+          if (key === "l" || key === "arrowright") {
+            e.preventDefault();
+            const next = moveFocusIndex(current, "right", flat.length, columns);
+            reveal(flat[next]);
+            focusStore.setFocusedIndex(next);
+            scrollLibraryFocusIntoView();
+            return;
+          }
+          if (key === "enter") {
+            e.preventDefault();
+            reveal(flat[current]);
+            useTabStore
+              .getState()
+              .openTab(flat[current].path, flat[current].format === "epub" ? "epub" : "pdf");
+            navigate({ to: "/" });
+            return;
           }
         }
         return;
