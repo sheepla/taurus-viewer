@@ -49,6 +49,32 @@ pnpm install
 pnpm tauri build
 ```
 
+### Nix for macOS
+
+A `flake.nix` is provided for building and installing TaurusViewer on macOS (Apple Silicon / `aarch64-darwin`) via Nix:
+
+```
+nix build .#default          # produces ./result/Applications/taurus-viewer.app
+nix develop                  # dev shell with rust, pnpm, cargo-tauri, etc.
+```
+
+A [nix-darwin](https://github.com/nix-darwin/nix-darwin) module is also exposed as `darwinModules.default`, adding a `programs.taurus-viewer.enable` option that installs the app and links it into `/Applications/Nix Apps/`:
+
+```nix
+{
+  inputs.taurus-viewer.url = "github:sheepla/taurus-viewer";
+
+  outputs = { nix-darwin, taurus-viewer, ... }: {
+    darwinConfigurations.<host> = nix-darwin.lib.darwinSystem {
+      modules = [
+        taurus-viewer.darwinModules.default
+        { programs.taurus-viewer.enable = true; }
+      ];
+    };
+  };
+}
+```
+
 ## Thanks
 
 - [Tauri](https://tauri.app): Cross-platform Web-based desktop app framework
