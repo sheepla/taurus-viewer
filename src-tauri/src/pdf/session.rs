@@ -20,9 +20,22 @@ pub struct PdfHighlightRect {
     pub height: f64,
 }
 
-// PDFium DLLをバイナリに埋め込み
-#[cfg(target_os = "windows")]
-static PDFIUM_DLL_BYTES: &[u8] = include_bytes!("../../pdfium.dll");
+// PDFiumの共有ライブラリをバイナリに埋め込み(Windows/macOS)。
+// パスは build.rs が `cargo:rustc-env=PDFIUM_LIB_PATH=...` で渡す、
+// ターゲットのOUT_DIR配下にダウンロード済みのファイル。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+static PDFIUM_LIB_BYTES: &[u8] = include_bytes!(env!("PDFIUM_LIB_PATH"));
+
+/// プラットフォームごとのPDFium共有ライブラリのファイル名。
+const fn pdfium_lib_filename() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "pdfium.dll"
+    } else if cfg!(target_os = "macos") {
+        "pdfium.dylib"
+    } else {
+        "libpdfium.so"
+    }
+}
 
 static RESOLVED_PDFIUM_DLL_PATH: OnceLock<PathBuf> = OnceLock::new();
 
@@ -85,36 +98,40 @@ impl PdfSession {
         Ok(PDFIUM.get().unwrap())
     }
 
-    fn ensure_pdfium_dll() -> Result<PathBuf, AppError> {
-        #[cfg(target_os = "windows")]
+    fn ensure_pdfium_lib() -> Result<PathBuf, AppError> {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             use std::io::Write;
 
             let temp_dir = std::env::temp_dir();
-            let dll_path = temp_dir.join(format!("pdfium_{}.dll", std::process::id()));
+            let lib_path = temp_dir.join(format!(
+                "pdfium_{}_{}",
+                std::process::id(),
+                pdfium_lib_filename()
+            ));
 
-            if dll_path.exists() {
-                if let Ok(metadata) = std::fs::metadata(&dll_path) {
-                    if metadata.len() == PDFIUM_DLL_BYTES.len() as u64 {
-                        return Ok(dll_path);
+            if lib_path.exists() {
+                if let Ok(metadata) = std::fs::metadata(&lib_path) {
+                    if metadata.len() == PDFIUM_LIB_BYTES.len() as u64 {
+                        return Ok(lib_path);
                     }
                 }
             }
 
-            let mut file = std::fs::File::create(&dll_path).map_err(|e| {
-                AppError::Pdf(format!("Failed to create temporary PDFium DLL: {}", e))
+            let mut file = std::fs::File::create(&lib_path).map_err(|e| {
+                AppError::Pdf(format!("Failed to create temporary PDFium library: {}", e))
             })?;
 
-            file.write_all(PDFIUM_DLL_BYTES)
-                .map_err(|e| AppError::Pdf(format!("Failed to write PDFium DLL: {}", e)))?;
+            file.write_all(PDFIUM_LIB_BYTES)
+                .map_err(|e| AppError::Pdf(format!("Failed to write PDFium library: {}", e)))?;
 
-            Ok(dll_path)
+            Ok(lib_path)
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
             Err(AppError::Pdf(
-                "PDFium DLL embedding is only supported on Windows".to_string(),
+                "PDFium library embedding is only supported on Windows and macOS".to_string(),
             ))
         }
     }
@@ -128,35 +145,35 @@ impl PdfSession {
 
         // 1. Try Tauri resource directory
         if let Some(res_dir) = resource_dir {
-            let dll_path = res_dir.join("pdfium.dll");
-            if dll_path.exists() {
-                RESOLVED_PDFIUM_DLL_PATH.set(dll_path.clone()).ok();
-                return Ok(dll_path);
+            let lib_path = res_dir.join(pdfium_lib_filename());
+            if lib_path.exists() {
+                RESOLVED_PDFIUM_DLL_PATH.set(lib_path.clone()).ok();
+                return Ok(lib_path);
             }
         }
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            // 2. Use embedded DLL
-            if let Ok(dll_path) = Self::ensure_pdfium_dll() {
-                if dll_path.exists() {
-                    RESOLVED_PDFIUM_DLL_PATH.set(dll_path.clone()).ok();
-                    return Ok(dll_path);
+            // 2. Use embedded library
+            if let Ok(lib_path) = Self::ensure_pdfium_lib() {
+                if lib_path.exists() {
+                    RESOLVED_PDFIUM_DLL_PATH.set(lib_path.clone()).ok();
+                    return Ok(lib_path);
                 }
             }
         }
 
         // 3. Try current directory
-        let local_path = PathBuf::from("pdfium.dll");
+        let local_path = PathBuf::from(pdfium_lib_filename());
         if local_path.exists() {
             RESOLVED_PDFIUM_DLL_PATH.set(local_path.clone()).ok();
             return Ok(local_path);
         }
 
-        Err(AppError::Pdf(
-            "Could not find pdfium.dll in resource directory, temp, or current directory."
-                .to_string(),
-        ))
+        Err(AppError::Pdf(format!(
+            "Could not find {} in resource directory, temp, or current directory.",
+            pdfium_lib_filename()
+        )))
     }
 
     pub fn get_page_dimensions(&self, page_index: u16) -> Result<(f64, f64), AppError> {

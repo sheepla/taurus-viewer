@@ -26,9 +26,10 @@ TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and
 
 ## Platform
 
-TaurusViewer is support only works on Windows but planning to port to Linux.
+TaurusViewer originally targeted Windows only, and macOS support (Apple Silicon) has since been added. Linux support is still planned.
 
 - [x] Windows
+- [x] macOS (Apple Silicon / `aarch64-darwin`)
 - [ ] Linux (Planning)
 
 ## Installation
