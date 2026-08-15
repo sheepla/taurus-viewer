@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { log } from "../../shared/log";
 import { useTabStore } from "./TabStore";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type { TabViewState } from "../../shared/types";
@@ -52,9 +53,9 @@ export function useTabPersistence(): void {
       if (!restored) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        void invoke("tab_save_sessions", { tabs: serializeTabs() }).catch(
-          console.error,
-        );
+        const tabs = serializeTabs();
+        log.debug(`[TabPersistence] saving ${tabs.length} tab(s)`);
+        void invoke("tab_save_sessions", { tabs }).catch(log.error);
       }, 500);
     });
 

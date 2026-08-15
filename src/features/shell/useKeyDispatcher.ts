@@ -8,6 +8,7 @@ import { useCommandPaletteStore } from "../command-mode/CommandPalette";
 import { useTabStore } from "../tabs/TabStore";
 import { useUiModeStore } from "./uiModeStore";
 import { makePagePosition } from "../bookmarks/bookmarks";
+import { log } from "../../shared/log";
 import type { DocumentViewerHandle, PanDirection } from "../../shared/viewer-handle";
 import type { ColumnCount, PageTurn, ViewMode } from "../../shared/types";
 import type { LibraryEntry, LibraryFolder } from "../../shared/bindings";
@@ -106,7 +107,7 @@ function toggleBookmark(
       toast.info(nowBookmarked ? "Bookmark added" : "Bookmark removed");
       void queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
     })
-    .catch(console.error);
+    .catch(log.error);
 }
 
 /**

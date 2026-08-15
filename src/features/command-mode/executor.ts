@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import type { ParsedCommand } from './CommandParser';
 import { useTabStore } from '../tabs/TabStore';
 import { closeAppWindow } from '../../shared/appWindow';
+import { log } from '../../shared/log';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -100,8 +101,8 @@ export function executeCommand(cmd: ParsedCommand): void {
               store.openTab(selected, format);
               toast.success(`Opened: ${selected.split('/').pop() ?? selected}`);
             }
-          }).catch(console.error);
-        }).catch(console.error);
+          }).catch(log.error);
+        }).catch(log.error);
         return;
       }
       const ext = path.split('.').pop()?.toLowerCase();

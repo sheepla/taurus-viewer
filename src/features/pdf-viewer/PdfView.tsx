@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { log } from "../../shared/log";
 import { useTabStore } from "../tabs/TabStore";
 import { PdfViewerHandle } from "./PdfViewerHandle";
 import { fitSpreadScale, spreadRowLeft } from "./pdfLayout";
@@ -122,7 +123,7 @@ function PageItem({
           style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}
           onLoad={() => setImageLoaded(true)}
           onError={(e) => {
-            console.error(`Failed to load page ${pageIndex + 1}:`, e);
+            log.error(`Failed to load page ${pageIndex + 1}:`, e);
             (e.target as HTMLImageElement).src =
               "data:image/svg+xml," +
               encodeURIComponent(`

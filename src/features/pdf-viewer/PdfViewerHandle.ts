@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { PdfMetadata, PdfOutlineNode, PdfSearchHit } from "../../shared/bindings";
 import { pdfOutlineToNodes } from "../../shared/outline";
-import { info, debug, warn } from "@tauri-apps/plugin-log";
+import { log } from "../../shared/log";
 import {
   OverscrollController,
   OVERSCROLL_PAGES_TUNING,
@@ -78,13 +78,16 @@ export class PdfViewerHandle implements DocumentViewerHandle {
       this.sessionId = meta.session_id;
       this.pageCount = meta.page_count;
       this.documentTitle = meta.title ?? null;
+      log.info(
+        `[PdfViewerHandle] opened: ${this.filePath} (${this.pageCount} pages)`,
+      );
 
       for (const listener of this.readyListeners) {
         listener();
       }
     } catch (error) {
-      warn(`[PdfViewerHandle] Failed to initialize PDF viewer: ${error}`);
-      warn(`[PdfViewerHandle] Error details: ${JSON.stringify(error, null, 2)}`);
+      log.warn(`[PdfViewerHandle] Failed to initialize PDF viewer: ${error}`);
+      log.warn(`[PdfViewerHandle] Error details: ${JSON.stringify(error, null, 2)}`);
       throw error;
     }
   }
@@ -198,7 +201,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   }
 
   navigate(target: PageTarget | ScrollDelta | PageTurn | ScrollEdge): void {
-    debug(`[PdfViewerHandle] navigate: ${JSON.stringify(target)}`);
+    log.debug(`[PdfViewerHandle] navigate: ${JSON.stringify(target)}`);
     switch (target.kind) {
       case "page":
         this.turnPage(target.index);
@@ -261,7 +264,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
   setZoom(level: ZoomLevel): void {
     this.zoomLevel = Math.max(0.25, Math.min(level, 4.0));
-    info(`[PdfViewerHandle] setZoom: ${this.zoomLevel}`);
+    log.info(`[PdfViewerHandle] setZoom: ${this.zoomLevel}`);
     for (const cb of this.zoomListeners) cb(this.zoomLevel);
   }
 
@@ -272,7 +275,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
       this.overscroll.configure(
         mode === "scroll" ? OVERSCROLL_SCROLL_TUNING : OVERSCROLL_PAGES_TUNING,
       );
-      info(`[PdfViewerHandle] setViewMode: ${mode}`);
+      log.info(`[PdfViewerHandle] setViewMode: ${mode}`);
       for (const cb of this.viewModeListeners) cb(this.viewMode);
     }
   }
@@ -283,7 +286,7 @@ export class PdfViewerHandle implements DocumentViewerHandle {
 
   setColumns(cols: ColumnCount): void {
     this.columns = cols;
-    info(`[PdfViewerHandle] setColumns: ${this.columns}`);
+    log.info(`[PdfViewerHandle] setColumns: ${this.columns}`);
     for (const cb of this.columnListeners) cb(this.columns);
   }
 
@@ -524,9 +527,10 @@ export class PdfViewerHandle implements DocumentViewerHandle {
   dispose(): void {
     this.stopPan();
     if (this.sessionId) {
-      invoke("pdf_close", { sessionId: this.sessionId }).catch(console.error);
+      invoke("pdf_close", { sessionId: this.sessionId }).catch(log.error);
       this.sessionId = null;
     }
+    log.info(`[PdfViewerHandle] closed: ${this.filePath}`);
     this.scrollContainer = null;
     this.positionListeners.clear();
     this.readyListeners.clear();

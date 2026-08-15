@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { View } from "foliate-js/view.js";
 import { epubOutlineToNodes } from "../../shared/outline";
 import { resolveEpubTitle } from "../../shared/epubTitle";
-import { info, debug, warn } from "@tauri-apps/plugin-log";
+import { log } from "../../shared/log";
 import type {
   BookmarkLabel,
   ColumnCount,
@@ -165,12 +165,13 @@ export class EpubViewerHandle implements DocumentViewerHandle {
       this.applyViewMode();
       this.applyReaderStyles();
       this.bindLoadedContent();
+      log.info(`[EpubViewerHandle] opened: ${this.filePath}`);
 
       for (const cb of this.readyListeners) {
         cb();
       }
     } catch (error) {
-      warn(`[EpubViewerHandle] Failed to initialize EPUB viewer: ${error}`);
+      log.warn(`[EpubViewerHandle] Failed to initialize EPUB viewer: ${error}`);
       throw error;
     }
   }
@@ -211,13 +212,12 @@ export class EpubViewerHandle implements DocumentViewerHandle {
   }
 
   navigate(target: PageTarget | ScrollDelta | PageTurn | ScrollEdge): void {
-    debug(`[EpubViewerHandle] navigate: ${JSON.stringify(target)}`);
-    console.log(`[EpubViewerHandle] NAVIGATE CALLED: ${JSON.stringify(target)}`);
+    log.debug(`[EpubViewerHandle] navigate: ${JSON.stringify(target)}`);
     const renderer = this.view.renderer;
     const scrolled = renderer !== undefined && renderer.scrolled === true;
     switch (target.kind) {
       case "page":
-        this.view.goTo({ fraction: target.index }).catch((err) => warn(`[EpubViewerHandle] goTo failed: ${err}`));
+        this.view.goTo({ fraction: target.index }).catch((err) => log.warn(`[EpubViewerHandle] goTo failed: ${err}`));
         break;
       case "edge":
         if (scrolled) {
@@ -228,7 +228,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
         } else {
           this.view
             .goTo({ fraction: target.edge === "start" ? 0 : 1 })
-            .catch((err) => warn(`[EpubViewerHandle] goTo failed: ${err}`));
+            .catch((err) => log.warn(`[EpubViewerHandle] goTo failed: ${err}`));
         }
         break;
       case "scroll":
@@ -244,27 +244,27 @@ export class EpubViewerHandle implements DocumentViewerHandle {
           }
         } else if (target.deltaY > 0) {
           // PAGES mode: the vertical scroll keys turn pages.
-          this.view.next().catch((err) => warn(`[EpubViewerHandle] next failed: ${err}`));
+          this.view.next().catch((err) => log.warn(`[EpubViewerHandle] next failed: ${err}`));
         } else if (target.deltaY < 0) {
-          this.view.prev().catch((err) => warn(`[EpubViewerHandle] prev failed: ${err}`));
+          this.view.prev().catch((err) => log.warn(`[EpubViewerHandle] prev failed: ${err}`));
         }
         break;
       case "prev":
         if (scrolled) {
           if (renderer.prevSection) {
-            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] prevSection failed: ${err}`));
+            renderer.prevSection().catch((err) => log.warn(`[EpubViewerHandle] prevSection failed: ${err}`));
           }
         } else {
-          this.view.prev().catch((err) => warn(`[EpubViewerHandle] prev failed: ${err}`));
+          this.view.prev().catch((err) => log.warn(`[EpubViewerHandle] prev failed: ${err}`));
         }
         break;
       case "next":
         if (scrolled) {
           if (renderer.nextSection) {
-            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] nextSection failed: ${err}`));
+            renderer.nextSection().catch((err) => log.warn(`[EpubViewerHandle] nextSection failed: ${err}`));
           }
         } else {
-          this.view.next().catch((err) => warn(`[EpubViewerHandle] next failed: ${err}`));
+          this.view.next().catch((err) => log.warn(`[EpubViewerHandle] next failed: ${err}`));
         }
         break;
       case "left":
@@ -272,12 +272,12 @@ export class EpubViewerHandle implements DocumentViewerHandle {
           // Mirrors goLeft(): prev for LTR, next for RTL.
           const rtl = (this.view.book as { dir?: string } | undefined)?.dir === "rtl";
           if (rtl && renderer.nextSection) {
-            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+            renderer.nextSection().catch((err) => log.warn(`[EpubViewerHandle] section turn failed: ${err}`));
           } else if (!rtl && renderer.prevSection) {
-            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+            renderer.prevSection().catch((err) => log.warn(`[EpubViewerHandle] section turn failed: ${err}`));
           }
         } else {
-          this.view.goLeft().catch((err) => warn(`[EpubViewerHandle] goLeft failed: ${err}`));
+          this.view.goLeft().catch((err) => log.warn(`[EpubViewerHandle] goLeft failed: ${err}`));
         }
         break;
       case "right":
@@ -285,12 +285,12 @@ export class EpubViewerHandle implements DocumentViewerHandle {
           // Mirrors goRight(): next for LTR, prev for RTL.
           const rtl = (this.view.book as { dir?: string } | undefined)?.dir === "rtl";
           if (rtl && renderer.prevSection) {
-            renderer.prevSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+            renderer.prevSection().catch((err) => log.warn(`[EpubViewerHandle] section turn failed: ${err}`));
           } else if (!rtl && renderer.nextSection) {
-            renderer.nextSection().catch((err) => warn(`[EpubViewerHandle] section turn failed: ${err}`));
+            renderer.nextSection().catch((err) => log.warn(`[EpubViewerHandle] section turn failed: ${err}`));
           }
         } else {
-          this.view.goRight().catch((err) => warn(`[EpubViewerHandle] goRight failed: ${err}`));
+          this.view.goRight().catch((err) => log.warn(`[EpubViewerHandle] goRight failed: ${err}`));
         }
         break;
     }
@@ -298,7 +298,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
   setZoom(level: ZoomLevel): void {
     this.zoomLevel = Math.max(0.6, Math.min(level, 2.5));
-    info(`[EpubViewerHandle] setZoom: ${this.zoomLevel}`);
+    log.info(`[EpubViewerHandle] setZoom: ${this.zoomLevel}`);
     this.applyReaderStyles();
     for (const cb of this.zoomListeners) cb(this.zoomLevel);
   }
@@ -311,7 +311,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     if (this.capabilities.viewModes.includes(mode)) {
       this.viewMode = mode;
       this.applyViewMode();
-      info(`[EpubViewerHandle] setViewMode: ${mode}`);
+      log.info(`[EpubViewerHandle] setViewMode: ${mode}`);
       for (const cb of this.viewModeListeners) cb(this.viewMode);
     }
   }
@@ -347,7 +347,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     if (paginator) {
       paginator.setAttribute("max-column-count", this.columns.toString());
     }
-    info(`[EpubViewerHandle] setColumns: ${this.columns}`);
+    log.info(`[EpubViewerHandle] setColumns: ${this.columns}`);
     for (const cb of this.columnListeners) cb(this.columns);
   }
 
@@ -404,7 +404,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
       this.setColumns(state.columns);
     }
     if (state.position.format === "epub" && "cfi" in state.position) {
-      this.view.goTo({ cfi: state.position.cfi }).catch(console.error);
+      this.view.goTo({ cfi: state.position.cfi }).catch(log.error);
     }
   }
 
@@ -416,7 +416,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
         : position.href
           ? position.href
           : undefined;
-    if (target) this.view.goTo(target).catch(console.error);
+    if (target) this.view.goTo(target).catch(log.error);
   }
 
   getBookmarkLabel(position: PagePosition): BookmarkLabel | null {
@@ -469,7 +469,7 @@ export class EpubViewerHandle implements DocumentViewerHandle {
     event.__overscrollHandled = true;
 
     if (this.overscroll.currentPhase === "cooldown") {
-      debug(`[EpubOverscroll] cooldown, ignoring deltaY=${e.deltaY}`);
+      log.debug(`[EpubOverscroll] cooldown, ignoring deltaY=${e.deltaY}`);
       return;
     }
     const renderer = this.view.renderer;
@@ -484,11 +484,11 @@ export class EpubViewerHandle implements DocumentViewerHandle {
       if (!this.isAtSectionEdge(direction)) {
         if (this.overscroll.currentPhase !== "idle") {
           this.overscroll.reset();
-          debug("[EpubOverscroll] scroll resumed, reset");
+          log.debug("[EpubOverscroll] scroll resumed, reset");
         }
         return;
       }
-      debug(`[EpubOverscroll] at section edge, deltaY=${e.deltaY}`);
+      log.debug(`[EpubOverscroll] at section edge, deltaY=${e.deltaY}`);
     }
 
     // PAGES mode always overscrolls; SCROLL mode overscrolls at the section
@@ -502,9 +502,9 @@ export class EpubViewerHandle implements DocumentViewerHandle {
 
   private turn(direction: OverscrollDirection): void {
     if (direction === "next") {
-      this.view.next().catch((err) => warn(`[EpubOverscroll] next() failed: ${err}`));
+      this.view.next().catch((err) => log.warn(`[EpubOverscroll] next() failed: ${err}`));
     } else {
-      this.view.prev().catch((err) => warn(`[EpubOverscroll] prev() failed: ${err}`));
+      this.view.prev().catch((err) => log.warn(`[EpubOverscroll] prev() failed: ${err}`));
     }
   }
 
@@ -593,13 +593,14 @@ export class EpubViewerHandle implements DocumentViewerHandle {
       if (this.view && typeof this.view.close === "function") {
         this.view.close();
       }
-    } catch (err) {
-      console.warn("Error during view close:", err);
+} catch (err) {
+      log.warn("Error during view close:", err);
     }
     if (this.sessionId) {
-      invoke("epub_close", { sessionId: this.sessionId }).catch(console.error);
+      invoke("epub_close", { sessionId: this.sessionId }).catch(log.error);
       this.sessionId = null;
     }
+    log.info(`[EpubViewerHandle] closed: ${this.filePath}`);
     this.positionListeners.clear();
     this.readyListeners.clear();
     this.overscroll.dispose();

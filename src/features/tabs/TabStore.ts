@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
+import { log } from "../../shared/log";
 import type { DocumentViewerHandle } from "../../shared/viewer-handle";
 import type {
   DocumentPosition,
@@ -96,6 +97,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       handle: null,
       restoreState,
     };
+    log.debug(`[TabStore] openTab: ${filePath} (${format})`);
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
   },
 
@@ -105,6 +107,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     if (index === -1) return;
 
     const tab = tabs[index];
+    log.debug(`[TabStore] closeTab: ${id} (${tab?.filePath ?? "unknown"})`);
 
     // Capture the view state and push it onto the closed-tab stack before
     // disposing the handle so restore can reopen the tab in the same state.
@@ -114,7 +117,7 @@ export const useTabStore = create<TabState>((set, get) => ({
         filePath: tab.filePath,
         format: tab.format,
         viewState: JSON.stringify(viewState),
-      }).catch(console.error);
+      }).catch(log.error);
       tab.handle.dispose();
     }
 
@@ -131,6 +134,7 @@ export const useTabStore = create<TabState>((set, get) => ({
   },
 
   activateTab(id) {
+    log.debug(`[TabStore] activateTab: ${id ?? "home"}`);
     set({ activeTabId: id });
   },
 
@@ -191,6 +195,7 @@ export const useTabStore = create<TabState>((set, get) => ({
         toast.info("No closed tab to restore");
         return;
       }
+      log.debug(`[TabStore] restoring closed tab: ${record.file_path}`);
       let viewState: TabViewState | null = null;
       try {
         viewState = JSON.parse(record.view_state) as TabViewState;
@@ -203,7 +208,7 @@ export const useTabStore = create<TabState>((set, get) => ({
         viewState,
       );
     } catch (error) {
-      console.error("Failed to restore closed tab:", error);
+      log.error("Failed to restore closed tab:", error);
     }
   },
 
@@ -214,6 +219,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
     try {
       const sessions = await invoke<TabSessionRecord[]>("tab_load_sessions");
+      log.debug(`[TabStore] restoring ${sessions.length} persisted tab(s)`);
       const openTab = get().openTab;
       for (const session of sessions) {
         let restoreState: TabViewState | null = null;
@@ -225,7 +231,7 @@ export const useTabStore = create<TabState>((set, get) => ({
         openTab(session.file_path, session.format, restoreState);
       }
     } catch (error) {
-      console.error("Failed to restore tab sessions:", error);
+      log.error("Failed to restore tab sessions:", error);
     }
   },
 }));

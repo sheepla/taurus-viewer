@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { log } from "../../shared/log";
 import type { AddFolderOutcome, LibraryEntry, LibraryFolder } from "../../shared/bindings";
 import {
   Accordion,
@@ -165,7 +166,7 @@ export function LibraryView() {
         ),
       );
     } catch (err) {
-      console.error("Failed to rescan folders:", err);
+      log.error("Failed to rescan folders:", err);
     } finally {
       setScanning(false);
     }
@@ -173,6 +174,7 @@ export function LibraryView() {
       queryClient.invalidateQueries({ queryKey: ["library", "folders"] }),
       queryClient.invalidateQueries({ queryKey: ["library", "entries"] }),
     ]);
+    log.debug(`[LibraryView] refreshed ${folders.length} folder(s)`);
   }
 
   async function handleAddFolder() {
@@ -188,8 +190,9 @@ export function LibraryView() {
 
       setScanning(true);
       await addFolder.mutateAsync(selected);
+      log.debug(`[LibraryView] added folder: ${selected}`);
     } catch (err) {
-      console.error("Failed to scan folder:", err);
+      log.error("Failed to scan folder:", err);
     } finally {
       setScanning(false);
     }
