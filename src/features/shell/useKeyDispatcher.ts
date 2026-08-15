@@ -19,6 +19,7 @@ import {
 import { useLibraryFocusStore } from "../library/libraryFocusStore";
 import { useLibraryAccordionStore } from "../library/libraryAccordionStore";
 import { useHelpModalStore } from "../../components/HelpModal";
+import { closeAppWindow } from "../../shared/appWindow";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -153,7 +154,9 @@ export function useKeyDispatcher(): void {
           if (active) {
             store.closeTab(active);
           } else {
-            window.close();
+            // No document tab is open (Home is active): quit the app. The bare
+            // window.close() would only darken the WebView without exiting.
+            closeAppWindow();
           }
           return;
         }

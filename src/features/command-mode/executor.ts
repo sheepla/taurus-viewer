@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import type { ParsedCommand } from './CommandParser';
 import { useTabStore } from '../tabs/TabStore';
-import { invoke } from '@tauri-apps/api/core';
+import { closeAppWindow } from '../../shared/appWindow';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -26,17 +26,13 @@ export function executeCommand(cmd: ParsedCommand): void {
         store.closeTab(active);
         toast.info('Tab closed');
       } else {
-        invoke('plugin:window|close').catch(() => {
-          window.close();
-        });
+        closeAppWindow();
       }
       break;
     }
 
     case 'qall':
-      invoke('plugin:window|close').catch(() => {
-        window.close();
-      });
+      closeAppWindow();
       break;
 
     case 'home':
