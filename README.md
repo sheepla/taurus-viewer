@@ -2,7 +2,7 @@
 
 # TaurusViewer
 
-TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and Tauri.
+TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and [Tauri](https://tauri.app).
 
 </div>
 
@@ -14,8 +14,8 @@ TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and
 
 ## Features
 
-- 📖 EPUB Support: Supports the EPUB format, a standard distribution format for e-books. It is rendered on the front end using foliate.js.
-- 📝 PDF Support: PDF documents are rendered using PDFium, the PDF rendering engine used inside Chromium, and controlled by the Rust backend.
+- 📖 EPUB Support: Supports the EPUB format, a standard distribution format for e-books. It is rendered on the front end using [foliate.js](https://github.com/johnfactotum/foliate-js).
+- 📝 PDF Support: PDF documents are rendered using [PDFium](https://pdfium.googlesource.com/pdfium/), the PDF rendering engine used inside Chromium, and controlled by the Rust backend.
 - 🌳 Outline Tree: Parses the hierarchical headings included in the document to display an outline tree, allowing you to easily jump to the relevant chapter. Navigation can be done via the keyboard, eliminating the need to reach for the mouse.
 - 🔍 Search: You can open the search panel with the `/` key. It allows you to search for text within the document and jump to the matching locations.
 - 🔖 Bookmarks: By registering bookmarks on any page, you can resume reading from where you left off.
@@ -25,6 +25,8 @@ TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and
 - 🎨 Document Recolor and Font Customization: Achieves eye-friendly color tones by adjusting the saturation and contrast of documents, allowing them to harmonize with dark mode. (Planned)
 
 ## Platform
+
+TaurusViewer is support only works on Windows but planning to port to Linux.
 
 - [x] Windows
 - [ ] Linux (Planning)
