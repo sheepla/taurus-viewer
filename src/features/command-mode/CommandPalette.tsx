@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { useTabStore } from "../tabs/TabStore";
 import type { LibraryEntry } from "../../shared/bindings";
-import { BookOpen, FileText, Search } from "lucide-react";
+import { BookOpen, FileText } from "lucide-react";
 import { create } from "zustand";
 
 interface CommandPaletteState {
@@ -110,8 +110,7 @@ export function CommandPalette() {
       <DialogContent className="max-w-xl p-0 overflow-hidden" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader className="px-4 pt-4 pb-2 border-b">
           <DialogTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-            <Search size={14} />
-            Command Palette (Jump to Tab or Library)
+            Jump to
           </DialogTitle>
         </DialogHeader>
         <div className="px-4 pt-3">

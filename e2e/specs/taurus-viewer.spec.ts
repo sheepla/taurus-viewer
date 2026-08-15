@@ -99,6 +99,7 @@ describe("TaurusViewer E2E Test Suite", () => {
           }
           if (cmd === "library_list_folders") return [];
           if (cmd === "library_list_entries") return [];
+          if (cmd === "plugin:dialog|open") return "C:/testdata/pdf_sample_file.pdf";
           return null;
         },
       };
@@ -591,6 +592,49 @@ describe("TaurusViewer E2E Test Suite", () => {
     await openPdf();
     await expect($('[data-testid="status-bar"]')).toHaveText(/Page 1 \/ 12/);
     await expect($('[data-page-index="0"]')).toBeDisplayed();
+  });
+
+  it("should show a drop zone above the library on the home screen", async () => {
+    const zone = await $("[data-drop-zone]");
+    await expect(zone).toBeDisplayed();
+    await expect(zone).toHaveText(/Drop PDF or EPUB files here/);
+  });
+
+  it("should open a document picked via the file dialog when the drop zone is clicked", async () => {
+    await $("[data-drop-zone]").click();
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(
+          () => document.querySelector('[data-page-index="0"]') !== null,
+        )) === true,
+      { timeout: 15000, timeoutMsg: "PDF pages were never rendered" },
+    );
+    await expect($('[data-testid="status-bar"]')).toHaveText(/Page 1 \/ 12/);
+    await expect($('[role="button"]*=pdf_sample_file')).toBeDisplayed();
+  });
+
+  it("should open a PDF dropped onto the home screen", async () => {
+    await browser.execute(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([""], "dropped.pdf", { type: "application/pdf" }));
+      const el = document.querySelector("[data-drop-zone]");
+      el?.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dt,
+        }),
+      );
+    });
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(
+          () => document.querySelector('[data-page-index="0"]') !== null,
+        )) === true,
+      { timeout: 15000, timeoutMsg: "PDF pages were never rendered" },
+    );
+    await expect($('[data-testid="status-bar"]')).toHaveText(/Page 1 \/ 12/);
+    await expect($('[role="button"]*=dropped')).toBeDisplayed();
   });
 
   it("should render pages beyond the initial window after scrolling", async () => {

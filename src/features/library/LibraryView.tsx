@@ -20,6 +20,7 @@ import {
 } from "./libraryOrder";
 import { useLibraryFocusStore } from "./libraryFocusStore";
 import { useLibraryAccordionStore } from "./libraryAccordionStore";
+import { DropZone } from "./DropZone";
 
 function LibraryEntryCard({
   entry,
@@ -259,6 +260,9 @@ export function LibraryView() {
       </div>
 
       <div ref={contentRef} data-library-scroll className="flex-1 overflow-y-auto p-4">
+        <div className="mb-4">
+          <DropZone />
+        </div>
         {entries.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-muted-foreground text-sm">
             <p className="mb-2">No documents in library.</p>
