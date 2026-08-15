@@ -48,3 +48,7 @@ pnpm tauri build
 
 ## Thanks
 
+- [Tauri](https://tauri.app): Cross-platform Web-based desktop app framework
+- [foliate.js](https://github.com/johnfactotum/foliate-js): The E-Books renderer library for the browser (for EPUB support)
+- [PDFium](https://pdfium.googlesource.com/pdfium/): PDF rendering engine by the Chromium project
+
