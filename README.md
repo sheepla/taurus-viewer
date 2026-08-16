@@ -26,9 +26,10 @@ TaurusViewer is a lightweight, keyboard-driven e-book viewer built with Rust and
 
 ## Platform
 
-TaurusViewer is support only works on Windows but planning to port to Linux.
+TaurusViewer originally targeted Windows only, and macOS support (Apple Silicon) has since been added. Linux support is still planned.
 
 - [x] Windows
+- [x] macOS (Apple Silicon / `aarch64-darwin`)
 - [ ] Linux (Planning)
 
 ## Installation
@@ -46,6 +47,32 @@ git clone https:///github.com/sheepla/taurus-viewer
 cd taurus-viewer
 pnpm install
 pnpm tauri build
+```
+
+### Nix for macOS
+
+A `flake.nix` is provided for building and installing TaurusViewer on macOS (Apple Silicon / `aarch64-darwin`) via Nix:
+
+```
+nix build .#default          # produces ./result/Applications/taurus-viewer.app
+nix develop                  # dev shell with rust, pnpm, cargo-tauri, etc.
+```
+
+A [nix-darwin](https://github.com/nix-darwin/nix-darwin) module is also exposed as `darwinModules.default`, adding a `programs.taurus-viewer.enable` option that installs the app and links it into `/Applications/Nix Apps/`:
+
+```nix
+{
+  inputs.taurus-viewer.url = "github:sheepla/taurus-viewer";
+
+  outputs = { nix-darwin, taurus-viewer, ... }: {
+    darwinConfigurations.<host> = nix-darwin.lib.darwinSystem {
+      modules = [
+        taurus-viewer.darwinModules.default
+        { programs.taurus-viewer.enable = true; }
+      ];
+    };
+  };
+}
 ```
 
 ## Thanks
