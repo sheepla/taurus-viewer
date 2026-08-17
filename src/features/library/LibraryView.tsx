@@ -21,6 +21,7 @@ import {
 import { useLibraryFocusStore } from "./libraryFocusStore";
 import { useLibraryAccordionStore } from "./libraryAccordionStore";
 import { DropZone } from "./DropZone";
+import { thumbnailUrl } from "../../shared/customProtocolUrl";
 
 function LibraryEntryCard({
   entry,
@@ -51,7 +52,7 @@ function LibraryEntryCard({
       <div className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden bg-muted/30">
         {!imgError && entry.thumbnail_path !== null ? (
           <img
-            src={`http://taurus-thumb.localhost/${entry.id}`}
+            src={thumbnailUrl(entry.id)}
             alt={entry.title}
             className="absolute inset-0 h-full w-full object-cover"
             onError={() => setImgError(true)}

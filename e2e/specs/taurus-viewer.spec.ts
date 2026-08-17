@@ -15,6 +15,8 @@ describe("TaurusViewer E2E Test Suite", () => {
       const calls: string[] = [];
       (window as any).__mockCalls = calls;
       (window as any).__TAURI_INTERNALS__ = {
+        convertFileSrc: (path: string, protocol = "asset") =>
+          `http://${protocol}.localhost/${encodeURIComponent(path)}`,
         invoke: async (cmd: string, args: unknown) => {
           calls.push(cmd);
           if (cmd === "epub_open") return { session_id: "e2e_session_1" };
