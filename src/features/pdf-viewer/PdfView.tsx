@@ -10,6 +10,7 @@ import type { Config, PageDimensions } from "../../shared/bindings";
 import type { OverscrollFeedback } from "../../shared/overscroll";
 import type { ColumnCount, ViewMode } from "../../shared/types";
 import { useSearchState } from "../search/searchState";
+import { pdfPageUrl } from "../../shared/customProtocolUrl";
 
 interface PdfViewProps {
   tabId: string;
@@ -117,7 +118,7 @@ function PageItem({
           </div>
         )}
         <img
-          src={`http://taurus-page.localhost/${sessionId}/${pageIndex}?w=${targetWidth}`}
+          src={pdfPageUrl(sessionId, pageIndex, targetWidth)}
           alt={`Page ${pageIndex + 1}`}
           className="block h-auto w-full object-contain"
           style={{ filter: invertColors ? "invert(1) hue-rotate(180deg)" : "none" }}

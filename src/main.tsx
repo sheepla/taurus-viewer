@@ -8,6 +8,8 @@ import "./index.css";
 // Mock Tauri IPC for browser/E2E testing environments if not running in native Tauri
 if (typeof window !== "undefined" && !(window as any).__TAURI_INTERNALS__) {
   (window as any).__TAURI_INTERNALS__ = {
+    convertFileSrc: (path: string, protocol = "asset") =>
+      `http://${protocol}.localhost/${encodeURIComponent(path)}`,
     invoke: async (cmd: string, _args: unknown) => {
       if (cmd === 'library_list_folders') return []
       if (cmd === 'library_list_entries') return [
